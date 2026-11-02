@@ -115,6 +115,9 @@ def test_a_repositorys_own_email_wins(repo):
 
 
 def test_no_author_setting_is_gits_own_identity(repo, tmp_path, monkeypatch):
+    # The merge queue sets GIT_AUTHOR_NAME=mergeq; it would beat the repo's user.name.
+    for k in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+        monkeypatch.delenv(k, raising=False)
     _settings(tmp_path, monkeypatch, f'checkout_dirs = ["{repo.parent}"]\nfiles_log = "{tmp_path / "f.jsonl"}"\n')
     git(repo, "config", "user.email", "repo@example.com")
     d = files.read("site", "app/x.py")
