@@ -1,4 +1,4 @@
-// Read-only specs and plans from every configured project.
+// Read-only specs and plans from every checkout, by id (project/kind/name).
 'use strict';
 (function () {
   const esc = CC.esc;
@@ -40,7 +40,7 @@
     node.innerHTML = `<h2>Specs and plans</h2>
       ${filters('Projects', project, project, projects, 'data-spec-project')}
       ${filters('Kinds', kind, kind, kinds, 'data-spec-kind')}
-      <div class="spec-list">${rows.length ? rows.map(doc => `<button type="button" class="spec-row" data-spec-open data-project="${esc(doc.project)}" data-path="${esc(doc.path)}">
+      <div class="spec-list">${rows.length ? rows.map(doc => `<button type="button" class="spec-row" data-spec-open data-id="${esc(doc.id)}">
         <strong>${esc(doc.title)}</strong><span class="meta">${esc(doc.project)} · ${esc(doc.kind)}</span><time>${esc(doc.date)}</time>
       </button>`).join('') : '<p class="empty">No specs or plans found.</p>'}</div>`;
   }
@@ -57,8 +57,8 @@
     }
     const doc = open.doc;
     node.innerHTML = `<button type="button" class="act spec-back" data-spec-back>Back to specs</button>
-      <article class="spec-detail"><h2>${esc(doc.title)}</h2><p class="dim">${esc(doc.project)} · ${esc(doc.kind)} · ${esc(doc.date)}</p>
-      <pre class="spec-document">${esc(doc.text)}</pre></article>`;
+      <article class="spec-detail"><h2>${esc(doc.title)}</h2><p class="dim">${esc(doc.project)} · ${esc(doc.kind)} · ${esc(doc.name)}</p>
+      <pre class="spec-document">${esc(doc.text)}</pre>${doc.cut ? '<p class="dim">Only the start of this document is shown.</p>' : ''}</article>`;
   }
 
   function draw() {
@@ -66,12 +66,13 @@
     else drawList();
   }
 
-  async function showDocument(item) {
+  async function showDocument(id) {
     open = {doc: null, error: ''};
     draw();
-    const query = new URLSearchParams({project: item.project, path: item.path});
     try {
-      open.doc = await CC.get(`/api/specs/file?${query}`);
+      const doc = await CC.get(`/api/specs/doc?${new URLSearchParams({id})}`);
+      if (doc.ok) open.doc = doc;
+      else open.error = doc.detail || 'Could not read that document.';
     } catch (error) {
       open.error = error.message || 'Could not read that document.';
     }
@@ -86,7 +87,7 @@
     const kindButton = event.target.closest('[data-spec-kind]');
     if (kindButton && node && node.contains(kindButton)) { kind = kindButton.dataset.specKind; draw(); return; }
     const row = event.target.closest('[data-spec-open]');
-    if (row && node && node.contains(row)) showDocument({project: row.dataset.project, path: row.dataset.path});
+    if (row && node && node.contains(row)) showDocument(row.dataset.id);
   }
 
   CC.register('specs', {

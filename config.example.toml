@@ -108,12 +108,29 @@ app_name = "Companion"
 # possessive = "this PC's"
 # place = "this PC"
 
-# Extra design documents for the Specs tab. These globs are relative to each
-# project root. A path containing "plan" is shown as a plan; other matches are specs.
-# spec_globs = ["docs/design/*.md"]
+# Where Files and Specs find checkouts: the child folders of each folder
+# listed here (a folder of repositories and the folder its git worktrees go
+# in, say); a listed folder is never itself a checkout. Leave it out and the
+# [projects] folders below are the checkouts. A repository's worktrees show
+# under it, its main checkout first, else a name in checkout_prefer; names in
+# checkout_skip are never shown or read.
+# checkout_dirs = ["~/work", "~/work/worktrees"]
+# checkout_skip = ["old-clone"]
+# checkout_prefer = ["api-main"]
 
-# The project folders the dashboard may act in: the Files tab browses and
-# edits only these, and New session starts Claude only in these.
+# More folders of design documents for Specs, by name, listed as kind "docs".
+# A session working in a folder's parent counts as working on it.
+# spec_folders = {notes = "~/notes/docs"}
+
+# Who a Files save commits as (a repository's own user.email still wins);
+# leave them out to commit as git's own identity. Every save is a line in
+# files_log (default <data_dir>/files.jsonl), and the spec push remembers what
+# it announced in specs_seen_file (default <data_dir>/specs-seen.json).
+# files_author_name = "Ada"
+# files_author_email = "ada@example.com"
+
+# The project folders the dashboard may act in: New session starts Claude
+# only in these, and without checkout_dirs, Files and Specs show these.
 # [projects]
 # api = "~/work/api"
 # site = "~/work/site"

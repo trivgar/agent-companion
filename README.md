@@ -64,12 +64,14 @@ can resume them in their old tmux names and folders.
 
 **New session.** Start Claude in a folder listed in `[projects]` with an optional first message; the page sends a project's key, never a path, says who already works there, and keeps unavailable folders disabled. The command is typed into a new tmux pane's shell, and a start counts once a Claude process is seen in that pane.
 
-**Files.** Browse configured project trees, open bounded text files and save an
-edit. Files git ignores, binary files and files over 1 MB stay out of the
-view. A save commits only that file when it was clean before the edit; it never
-pushes.
+**Files.** Browse every checkout like a repository view, its worktrees under
+it as branches: folders, files, the folder's README, the last commit, images.
+Open a file and save an edit. Files git ignores and generated folders
+(`node_modules`, `venv` and the like) stay out of the view; binary files and
+files over 1 MB open read only. A save commits only that file when it was clean
+before the edit; it never pushes.
 
-**Specs.** Read design specs and plans from every configured project, including the usual `docs/superpowers/specs` and `docs/superpowers/plans` files plus optional project-relative `spec_globs`, without permitting edits.
+**Specs.** Read the design specs and plans in every checkout's `docs/superpowers/specs` and `docs/superpowers/plans`, plus any folder named in `spec_folders`, newest first, each document once per repository and with who is working in it, without permitting edits. Each new spec is pushed once.
 
 **Asks.** When a session wants permission to run something, or asks you a
 multiple-choice question, it shows up here with Allow and Deny. If the command
@@ -170,7 +172,8 @@ corresponding feature is used:
   `~/.claude/session-companion-waiting/<pid>`. If that hook sends Web Push, it
   can also create `session-companion-vapid.json` and
   `session-companion-push.json` there.
-- The Files tab writes only a text file below a root you put in `[projects]`.
+- The Files tab writes only a text file git lists in a checkout it shows
+  (`checkout_dirs`, else `[projects]`).
   It writes beside the file and renames it, then commits only that file when it
   was clean before the save. It never pushes.
 - The Scoreboard writes `scoreboard-cache.json` and `scoreboard-marks.json` in
@@ -394,8 +397,14 @@ hooks run outside any server's process.
 | `restore_snapshot_interval_min` | Snapshot timer cadence in minutes, 1 through 60; default 5 |
 | `systemd_user_dir` | Where the restore timer installer writes user units; default `~/.config/systemd/user` |
 | `restore_python` | Python executable the restore timer runs; default is the Python that installed it |
-| `[projects]` | Project name to folder. The Files tab browses and edits only these; New session starts Claude only in these. A `[[projects]]` row (`name`, `path`) may add New session's `key` (what the page sends), `label` and tmux `prefix`; they default to the name. |
-| `spec_globs` | Extra design-document globs relative to every `[projects]` root. Matches in a path containing `plan` are plans; other matches are specs. |
+| `[projects]` | Project name to folder. New session starts Claude only in these, and without `checkout_dirs` Files and Specs show these. A `[[projects]]` row (`name`, `path`) may add New session's `key` (what the page sends), `label` and tmux `prefix`; they default to the name. |
+| `checkout_dirs` | Folders whose child folders are the checkouts Files and Specs show, such as `["~/work", "~/work/worktrees"]`; a listed folder is never itself one. Leave it out and the `[projects]` folders are the checkouts. In the environment, separate them with `:` |
+| `checkout_skip` | Checkout folder names never shown or read, such as a stale clone |
+| `checkout_prefer` | Worktree names that head their repository when its main checkout is skipped |
+| `spec_folders` | More folders of design documents for Specs, by name, such as `{notes = "~/notes/docs"}`; listed as kind `docs`, and a session in a folder's parent counts as working on it |
+| `specs_seen_file` | Where the spec push remembers what it announced; default `<data_dir>/specs-seen.json` |
+| `files_author_name`, `files_author_email` | Who a Files save commits as (a repository's own `user.email` wins); default git's own identity |
+| `files_log` | One line per Files save; default `<data_dir>/files.jsonl` |
 | `[new_session]` | New session's `default_model`, and `claude_args`: words every start passes to claude, such as a permission mode (an older `projects` list here is still read) |
 
 ### Helpers and background jobs

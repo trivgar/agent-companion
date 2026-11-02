@@ -14,10 +14,10 @@ from agent_companion import server  # noqa: E402
 TOKEN = "t" * 32
 OWNER = "o" * 64
 DOCS = [
-    {"project": "api", "path": "docs/superpowers/specs/example.md", "title": "Example <i>spec</i>",
-     "kind": "spec", "date": "2026-05-01", "modified": 1},
-    {"project": "web", "path": "docs/superpowers/plans/work.md", "title": "Work plan",
-     "kind": "plan", "date": "2026-04-01", "modified": 1},
+    {"id": "api/specs/example.md", "project": "api", "kind": "specs", "name": "example.md",
+     "title": "Example <i>spec</i>", "date": "2026-05-01", "modified": 1, "bytes": 80, "repo": "api"},
+    {"id": "web/plans/work.md", "project": "web", "kind": "plans", "name": "work.md",
+     "title": "Work plan", "date": "2026-04-01", "modified": 1, "bytes": 9, "repo": "web"},
 ]
 TEXT = "<img src=x onerror=alert(1)>\n# Heading\n```html\n<b>literal</b>\n```\n"
 
@@ -68,10 +68,11 @@ def page(base_url):
         page = context.new_page()
 
         def specs_api(route):
-            if "/file?" in route.request.url:
-                route.fulfill(json={"ok": True, **DOCS[0], "text": TEXT, "bytes": len(TEXT)})
+            if "/doc?" in route.request.url:
+                assert "id=api%2Fspecs%2Fexample.md" in route.request.url
+                route.fulfill(json={"ok": True, **DOCS[0], "text": TEXT, "cut": True, "agents": []})
             else:
-                route.fulfill(json={"docs": DOCS})
+                route.fulfill(json={"ok": True, "docs": DOCS, "agents": {}})
 
         page.route("**/api/specs**", specs_api)
         page.add_init_script(f"localStorage.setItem('cc-owner-key', '{OWNER}')")
@@ -83,7 +84,7 @@ def page(base_url):
 def test_document_text_is_escaped_and_filters_are_available(page):
     page.wait_for_selector(".spec-row")
     assert page.locator(".spec-row").count() == 2
-    page.get_by_role("button", name="plan", exact=True).click()
+    page.get_by_role("button", name="plans", exact=True).click()
     assert page.locator(".spec-row").count() == 1
     page.get_by_role("button", name="All kinds").click()
     page.locator(".spec-row").first.click()
@@ -91,3 +92,4 @@ def test_document_text_is_escaped_and_filters_are_available(page):
     assert page.locator(".spec-document img").count() == 0
     assert page.locator(".spec-document b").count() == 0
     assert page.locator(".spec-document").inner_text() == TEXT
+    assert page.get_by_text("Only the start of this document is shown.").is_visible()
