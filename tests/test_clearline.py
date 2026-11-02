@@ -75,7 +75,8 @@ def test_watcher_pushes_once_per_crossing_and_writes_state(tmp_path, monkeypatch
     watcher = clearline.Watcher(lambda: [dict(row) for row in rows],
                                 lambda *args: sent.append(args) or True, path=state)
     assert watcher.tick() == ["abcdef1234"]
-    assert sent == [("Needs a /clear", "Session (sample) is at 447k: needs a /clear", "/", "clear-abcdef12")]
+    assert sent == [("Needs a /clear", "Session (sample) is at 447k: needs a /clear", "/?agent=Session",
+                     "clear-abcdef12")]
     saved = clearline.read_over(state)["over"]["abcdef1234"]
     assert saved["speaker"] == "Session" and saved["project"] == "sample"
     assert saved["used"] == 447_000 and saved["pushed"] is True and saved["since"]
@@ -94,6 +95,35 @@ def test_watcher_retries_a_failed_push(tmp_path, monkeypatch):
     assert watcher.tick() == []
     sent[0] = True
     assert watcher.tick() == ["s1"]
+
+
+def test_watcher_waits_while_the_owner_sleeps_and_taps_through(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_CLEARLINE", str(tmp_path / "line.json"))
+    rows = [{"session_id": "abcdef1234", "speaker": "Night Owl", "project": "sample",
+             "context_used": 447_000}]
+    sent, sleeping = [], [True]
+    state = tmp_path / "over.json"
+    watcher = clearline.Watcher(lambda: [dict(row) for row in rows],
+                                lambda *args: sent.append(args) or True, path=state,
+                                asleep=lambda: sleeping[0])
+    assert watcher.tick() == [] and sent == []                 # asleep: it waits, unsent
+    assert "abcdef1234" in clearline.read_over(state)["over"]  # and the flag is still written
+    sleeping[0] = False
+    assert watcher.tick() == ["abcdef1234"]
+    assert sent[0][2] == "/?agent=Night%20Owl"
+    assert watcher.tick() == [] and len(sent) == 1
+
+
+def test_an_asleep_check_that_fails_counts_as_awake(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_CLEARLINE", str(tmp_path / "line.json"))
+
+    def broken():
+        raise RuntimeError("no idea")
+    sent = []
+    watcher = clearline.Watcher(lambda: [{"session_id": "s1", "context_used": 500_000}],
+                                lambda *args: sent.append(args) or True, path=tmp_path / "over.json",
+                                asleep=broken)
+    assert watcher.tick() == ["s1"] and sent[0][2] == "/"
 
 
 def test_watcher_refuses_to_start_under_pytest():

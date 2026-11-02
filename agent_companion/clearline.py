@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from . import config
 
@@ -80,10 +81,13 @@ def _short(tokens: int) -> str:
 
 
 class Watcher:
-    """Record sessions past the line and push once per crossing."""
+    """Record sessions past the line and push once per crossing. While
+    asleep() says the owner sleeps, the push waits, unsent, for them to
+    wake; the flag is written either way."""
 
-    def __init__(self, snapshot, send, path: Path | None = None):
+    def __init__(self, snapshot, send, path: Path | None = None, *, asleep=None):
         self.snapshot, self.send = snapshot, send
+        self.asleep = asleep or (lambda: False)
         self.path = Path(path) if path else None
         self._stop = threading.Event()
         self.thread = None
@@ -94,6 +98,10 @@ class Watcher:
             rows = self.snapshot()
         except Exception:
             return []
+        try:
+            sleeping = bool(self.asleep())
+        except Exception:
+            sleeping = False
         before = read_over(path).get("over") or {}
         before = before if isinstance(before, dict) else {}
         line, now, pushed, flagged = get(), time.time(), [], {}
@@ -106,12 +114,13 @@ class Watcher:
             entry = {"speaker": row.get("speaker") or row.get("name") or "",
                      "project": row.get("project") or "", "used": int(row["context_used"]),
                      "since": was.get("since") or now, "pushed": bool(was.get("pushed"))}
-            if not entry["pushed"]:
+            if not entry["pushed"] and not sleeping:
                 name = entry["speaker"] or "A session"
                 project = f" ({entry['project']})" if entry["project"] else ""
+                url = f"/?agent={quote(entry['speaker'], safe='')}" if entry["speaker"] else "/"
                 try:
                     sent = self.send("Needs a /clear", f"{name}{project} is at {_short(entry['used'])}: needs a /clear",
-                                     "/", f"clear-{sid[:8]}")
+                                     url, f"clear-{sid[:8]}")
                 except Exception:
                     sent = False
                 if sent:
