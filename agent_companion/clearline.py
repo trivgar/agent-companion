@@ -58,9 +58,11 @@ def over(row: dict, line: int) -> bool:
 
 
 def over_file() -> Path:
-    override = config.env("CLEAR_OVER")
+    """Who is past the line, for whatever else reads it (a session's own
+    prompt hook can). Set by clear_over_file; under data_dir by default."""
+    override = config.env("CLEAR_OVER") or config.get("clear_over_file")
     if override:
-        return Path(override)
+        return Path(str(override)).expanduser()
     from .server import sessions
     return sessions.data_dir() / "needs-clear.json"
 

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -50,6 +51,19 @@ def test_over_skips_children_and_rows_without_context():
     assert not clearline.over({}, 400_000)
     assert not clearline.over({"context_used": None}, 400_000)
     assert not clearline.over({"context_used": True}, 400_000)
+
+
+def test_the_over_file_is_a_setting(tmp_path, monkeypatch):
+    config = tmp_path / "config.toml"
+    monkeypatch.setenv("AGENT_COMPANION_CONFIG", str(config))
+    monkeypatch.setenv("AGENT_COMPANION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("AGENT_COMPANION_CLEAR_OVER", raising=False)
+    config.write_text("")
+    assert clearline.over_file() == tmp_path / "data" / "needs-clear.json"
+    config.write_text('clear_over_file = "~/hooks/needs-clear.json"\n')
+    assert clearline.over_file() == Path.home() / "hooks" / "needs-clear.json"
+    monkeypatch.setenv("AGENT_COMPANION_CLEAR_OVER", str(tmp_path / "env.json"))
+    assert clearline.over_file() == tmp_path / "env.json"
 
 
 def test_watcher_pushes_once_per_crossing_and_writes_state(tmp_path, monkeypatch):
