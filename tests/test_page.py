@@ -27,8 +27,8 @@ ROWS = [
 ]
 USAGE = {"five_hour": {"cost_usd": 1.5, "total_tokens": 1000}, "seven_day": {"cost_usd": 20, "total_tokens": 9000},
          "limits": {"available": False, "reason": "no credentials"},
-         "codex": {"enabled": True, "available": True, "age_seconds": 720,
-                   "five_hour": {"utilization": 41}, "week": {"utilization": 19}}}
+         "codex": {"enabled": True, "available": True, "age_seconds": 720, "utilization": 19,
+                   "window_minutes": 10080, "why": "", "five_hour": {"utilization": 41}}}
 
 
 @pytest.fixture(scope="module")

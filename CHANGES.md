@@ -3,6 +3,12 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## 2026-11-01
+- `/api/usage`'s `codex` reading takes the shape both pages read: the plan's
+  long window at the top level (`utilization`, `resets_at` as an ISO time,
+  `resets_in_seconds`, `window_minutes`, `plan`), a 5-hour window under
+  `five_hour`, and `why` where it said `reason`. `enabled` stays. A long
+  window that is not a week is now shown, and a window is no longer shown once
+  its reading is older than the window itself.
 - Renamed from claude-companion to **agent-companion**: the repo, the package
   (`agent_companion`), the env names (`AGENT_COMPANION_*`), the headers
   (`x-agent-companion-*`), the token file (`agent-companion-token`), the units
