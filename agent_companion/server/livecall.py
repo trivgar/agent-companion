@@ -7,9 +7,9 @@ from pathlib import Path
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
-from .. import addons, fcm, livecall, ring
+from .. import addons, agentvibes, fcm, livecall, ring
 from ..webpush import PushStore
-from . import asks, auth, chat, sessions
+from . import asks, auth, chat, comms, sessions
 
 router = APIRouter()
 _CLOSED = {"ok": False, "closed": True, "detail": "No call is open."}
@@ -36,6 +36,23 @@ def _branch(cwd: str) -> str:
         return str((sessions._parts()["git"].for_repo(cwd) or {}).get("branch") or "")
     except Exception:
         return ""
+
+
+def _hold(name: str) -> None:
+    """Hold a speaker's clips while the call talks to it, when a coordinator
+    is set up (agentvibes.call_hold); each poll renews it."""
+    tts = comms.tts_dir()
+    if name and agentvibes.available(tts):
+        agentvibes.call_hold(tts, name)
+
+
+def _release(names) -> None:
+    """Let go of the speakers the call no longer holds: quiet.sh speaks what
+    they said meanwhile."""
+    tts = comms.tts_dir()
+    if names and agentvibes.available(tts):
+        for name in names:
+            agentvibes.call_release(tts, name)
 
 
 def _send_push(title: str, body: str, url: str, tag: str, actions: list[dict]) -> bool:
@@ -165,6 +182,7 @@ def _ask_session(call: livecall.Call, known: dict[str, dict], args: dict) -> dic
     ok, why = chat.send(target, livecall.relay_words(words))
     if ok:
         livecall.watch(call, target, _projects(), asked=True)
+        _hold(target["name"])
     return {"sent": ok, "name": target["name"], "detail": why or f"Typed into {target['name']}'s window. No reply yet."}
 
 
@@ -222,12 +240,17 @@ def call_token(body: dict = Body(default={})):
     claimed = current is None and bool(ring_id) and bool(ask_ids)
     active, brief = _brief(ask_ids, _rows(), time.time()) if ask_ids else ([], "")
     try:
-        out, _ = livecall.open_call(target["name"] if target else "", call_id, known, _projects(),
-                                     ring=ring_id if active else "", ring_asks=[ask["id"] for ask in active], brief=brief)
+        out, released = livecall.open_call(target["name"] if target else "", call_id, known, _projects(),
+                                            ring=ring_id if active else "", ring_asks=[ask["id"] for ask in active],
+                                            brief=brief)
     except livecall.CallRefused as exc:
+        _release(exc.release)
         if claimed:
             ring.release(ring_id)
         return JSONResponse({"ok": False, "detail": str(exc)}, status_code=409, headers={"Cache-Control": "no-store"})
+    _release(released)
+    if out["agent"]:
+        _hold(out["agent"])
     return JSONResponse({"ok": True, **out, "brief": len(active)}, headers={"Cache-Control": "no-store"})
 
 
@@ -236,7 +259,8 @@ def call_tool(tool: str, body: dict = Body(default={})):
     if tool not in livecall.TOOL_NAMES:
         raise HTTPException(404, "no such tool")
     body = body if isinstance(body, dict) else {}
-    call, _ = livecall.current(str(body.get("call_id") or ""))
+    call, released = livecall.current(str(body.get("call_id") or ""))
+    _release(released)
     if not call:
         return JSONResponse(_CLOSED, status_code=409)
     args = body.get("args") if isinstance(body.get("args"), dict) else {}
@@ -257,15 +281,20 @@ def call_tool(tool: str, body: dict = Body(default={})):
 
 @router.post("/api/call/updates", dependencies=[Depends(auth.require_write)])
 def call_updates(body: dict = Body(default={})):
-    call, _ = livecall.current(str((body or {}).get("call_id") or ""))
+    call, released = livecall.current(str((body or {}).get("call_id") or ""))
+    _release(released)
     if not call:
         return JSONResponse(_CLOSED, status_code=409)
-    return JSONResponse({"ok": True, "updates": livecall.updates(call)}, headers={"Cache-Control": "no-store"})
+    updates = livecall.updates(call)
+    for name in livecall.held_names(call):
+        _hold(name)
+    return JSONResponse({"ok": True, "updates": updates}, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/call/heard", dependencies=[Depends(auth.require_write)])
 def call_heard(body: dict = Body(default={})):
-    call, _ = livecall.current(str((body or {}).get("call_id") or ""))
+    call, released = livecall.current(str((body or {}).get("call_id") or ""))
+    _release(released)
     if not call:
         return JSONResponse(_CLOSED, status_code=409)
     livecall.hear(call, str((body or {}).get("text") or ""))
@@ -274,5 +303,5 @@ def call_heard(body: dict = Body(default={})):
 
 @router.post("/api/call/end", dependencies=[Depends(auth.require_write)])
 def call_end(body: dict = Body(default={})):
-    livecall.end(str((body or {}).get("call_id") or ""))
+    _release(livecall.end(str((body or {}).get("call_id") or "")))
     return {"ok": True}

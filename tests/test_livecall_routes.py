@@ -131,3 +131,29 @@ def test_a_refused_call_does_not_spend_its_ring_brief(client, monkeypatch, refus
     assert opened.status_code == 200 and opened.json()["brief"] == 1
 
 
+
+
+def test_a_call_holds_its_agents_clips_renews_the_hold_and_lets_it_go(client, tmp_path, monkeypatch):
+    tts = tmp_path / "tts"
+    tts.mkdir()
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "audio-effects.cfg").write_text("alpha|gain 8||0.7\n")
+    quiet = tts / "quiet.sh"
+    quiet.write_text('#!/bin/sh\necho "$@" >> "$(dirname "$0")/quiet.log"\nrm -f "$(dirname "$0")/callhold-$2"\n')
+    quiet.chmod(0o755)
+    monkeypatch.setenv("AGENT_COMPANION_TTS_DIR", str(tts))
+    call_id = post(client, "/api/call/token", {"agent": "alpha"}).json()["call_id"]
+    assert (tts / "callhold-alpha").is_file()
+    (tts / "callhold-alpha").unlink()
+    assert post(client, "/api/call/updates", {"call_id": call_id}).status_code == 200
+    assert (tts / "callhold-alpha").is_file(), "each poll renews the hold"
+    assert post(client, "/api/call/end", {"call_id": call_id}).json() == {"ok": True}
+    assert (tts / "quiet.log").read_text() == "callrelease alpha\n"
+    assert not (tts / "callhold-alpha").exists()
+
+
+def test_without_a_coordinator_a_call_holds_nothing(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_TTS_DIR", str(tmp_path / "none"))
+    call_id = post(client, "/api/call/token", {"agent": "alpha"}).json()["call_id"]
+    assert post(client, "/api/call/end", {"call_id": call_id}).json() == {"ok": True}
+    assert not (tmp_path / "none").exists()

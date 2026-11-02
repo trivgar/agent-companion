@@ -101,3 +101,46 @@ def test_a_phone_that_can_ring_is_recorded_as_the_live_calls_ringer(tmp_path, mo
     assert saved == [("abc", True)]
     assert client.post("/api/tts/app", json={"token": "def"}, headers={**SAME, **KEY}).json() == {"ok": True}
     assert saved == [("abc", True)], "a phone that cannot ring is not a ringer"
+
+
+def _client(tts, monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_TTS_DIR", str(tts))
+    monkeypatch.setattr(server, "FEATURES", ["comms"])
+    return TestClient(server.create_app(token=TOKEN, owner_key=OWNER))
+
+
+def test_the_state_is_the_sound_pages_shape_with_the_hold_and_the_app(tmp_path, monkeypatch):
+    body = _client(_coordinator(tmp_path), monkeypatch).get("/api/tts", headers=KEY).json()
+    assert set(body) == {"speakers", "tracks", "presets", "voices", "music_enabled", "stop_available", "quiet",
+                         "health", "held", "app"}
+    assert body["quiet"]["hold"] == {"until": None, "waiting": 0} and body["held"] is False
+
+
+def test_the_buttons_answer_in_the_sound_pages_words(tmp_path, monkeypatch):
+    tts = _coordinator(tmp_path)
+    (tts / "volume.conf").write_text("voice_gain=3\neffects.Speaker=\n")
+    client, write = _client(tts, monkeypatch), {**SAME, **KEY}
+    level = client.post("/api/tts/level", json={"key": "voice_gain", "value": 5}, headers=write).json()
+    assert level == {"voice_gain": 5, "music_volume": 0.7, "speakers": {}}
+    assert (tts / "volume.conf").read_text() == "voice_gain=5\neffects.Speaker=\n"
+    assert client.post("/api/tts/level", json={"key": "voice_gain", "value": 99}, headers=write).status_code == 400
+    assert client.post("/api/tts/release", json={}, headers=write).json() == {
+        "released": 0, "detail": "release is unavailable: no executable tts/quiet.sh"}
+    assert client.post("/api/tts/test", json={}, headers=write).json() == {
+        "spoken": False, "detail": "test is unavailable: no executable tts/quiet.sh"}
+    assert client.post("/api/tts/stop", json={}, headers=write).json() == {
+        "stopped": False, "queue_cleared": False, "detail": "stop is unavailable: no executable tts/stop.sh"}
+
+
+def test_the_transcript_offers_a_replay_only_for_a_spoken_line(tmp_path, monkeypatch):
+    import time
+    tts, stamp = _coordinator(tmp_path), "2026-11-02 10:00:00"
+    words = "The tests pass and the build is green."
+    (tts / "speak.log").write_text(f"{stamp} SPOKE Speaker 3.0s :: Speaker here, on the shop. {words}\n"
+                                   f"{stamp} MUTED(Speaker) :: {words}\n")
+    (tts / "outbox").mkdir()
+    (tts / "outbox" / "7.json").write_text(json.dumps(
+        {"seq": 7, "name": "Speaker", "text": words, "at": time.mktime(time.strptime(stamp, "%Y-%m-%d %H:%M:%S"))}))
+    muted, spoke = _client(tts, monkeypatch).get("/api/tts/transcript", headers=KEY).json()["clips"]
+    assert (spoke["state"], spoke["body"], spoke["seq"]) == ("spoke", words, 7)
+    assert muted["state"] == "muted" and "seq" not in muted
