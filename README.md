@@ -162,9 +162,10 @@ corresponding feature is used:
   `~/.claude/limits-cache.json` unless `data_dir` is configured. They are local
   caches for token totals and limit checks.
 - The stale background-job reaper writes `job-reaper.jsonl` in the app data
-  directory when it terminates an orphaned snapshot shell. It records the time,
-  process ids, age and redacted command; set `job_reaper_every_min = 0` to turn
-  that reaper off.
+  directory when it terminates a stuck snapshot shell: an orphan, or with
+  `job_reaper_max_hours` set, one under a live session past that age. It
+  records the time, process ids, age, why and redacted command; set
+  `job_reaper_every_min = 0` to turn that reaper off.
 - The standalone `notify` hook writes a waiting marker at
   `~/.claude/session-companion-waiting/<pid>`. If that hook sends Web Push, it
   can also create `session-companion-vapid.json` and
@@ -381,6 +382,8 @@ hooks run outside any server's process.
 | `tts_dir` | Directory containing an executable speech coordinator `speak.sh`; optional and compatible with AgentVibes-style coordinators |
 | `job_reaper_after_min` | Age before an orphaned background snapshot shell is terminated; default 60 |
 | `job_reaper_every_min` | Reaper interval in minutes; default 10, and 0 turns it off |
+| `job_reaper_max_hours` | Hours past which a background job under a live session is reaped too; unset or 0 leaves those alone |
+| `job_reaper_keep` | A regular expression (any case) for commands never reaped, such as dev servers and log follows; one that cannot compile stops the reaper |
 | `health_disks` | Extra local disk paths for the Machine tab; `/` is always included |
 | `health_hot_c` | CPU and GPU warning temperature in C; default 85 |
 | `health_disk_full_pct` | Disk-use warning percentage; default 90 |

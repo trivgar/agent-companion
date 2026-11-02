@@ -1,24 +1,34 @@
-"""Periodically terminate abandoned Claude Code snapshot-shell jobs.
+"""Periodically terminate stuck Claude Code snapshot-shell jobs.
 
-The worker considers only snapshot shells whose Claude owner has disappeared.
-It checks that condition again immediately before signalling, so an active
-Claude process is never deliberately interrupted.
+An orphan, a snapshot shell whose Claude owner has gone, is stuck once it is
+``job_reaper_after_min`` old. A job under a live session is that session's own
+and left alone, unless ``job_reaper_max_hours`` is set: then it is stuck past
+that age too (a forgotten ``until ...; do sleep 5; done`` waiter runs for
+days). A command matching ``job_reaper_keep``, meant to run until someone stops
+it, is never stuck. Each job is judged again before every signal pass, and
+every pid's identity checked, so a recycled pid or a job that stopped being
+stuck is never signalled. ``python3 -m agent_companion.jobreaper --dry-run``
+lists what a pass would stop and signals nothing.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import math
 import os
 from pathlib import Path
+import re
 import signal
 import sys
 import threading
 import time
+from typing import NamedTuple
 
 from . import bgjobs, config
 
 DEFAULT_EVERY_MIN = 10
 DEFAULT_AFTER_MIN = 60
+GRACE_S = 10.0
 LOG_NAME = "job-reaper.jsonl"
 
 
@@ -38,6 +48,65 @@ def every_s() -> int:
 def after_s() -> int:
     """The minimum age of an orphan snapshot shell before it is terminated."""
     return _minutes("job_reaper_after_min", DEFAULT_AFTER_MIN) * 60
+
+
+def max_s() -> int:
+    """How old a job under a live session may grow before it is stuck too
+    (``job_reaper_max_hours``). 0, the default, leaves every such job alone."""
+    raw = config.get("job_reaper_max_hours", 0)
+    if isinstance(raw, bool):
+        return 0
+    try:
+        hours = float(raw)
+    except (TypeError, ValueError):
+        return 0
+    return int(hours * 3600) if math.isfinite(hours) and hours > 0 else 0
+
+
+def keep_pattern() -> re.Pattern | None:
+    """``job_reaper_keep``: commands never reaped, matched case-insensitively
+    against the whole command before any redaction. None when unset. Raises
+    re.error, or TypeError for a setting that is not text."""
+    raw = config.get("job_reaper_keep", "")
+    if raw is None or raw == "":
+        return None
+    if not isinstance(raw, str):
+        raise TypeError("job_reaper_keep must be text")
+    return re.compile(raw, re.IGNORECASE)
+
+
+def problem() -> str:
+    """Why a pass reaps nothing, or "" when the settings can be used. A keep
+    pattern that cannot be read stops the reaper: it is there to protect jobs."""
+    try:
+        keep_pattern()
+    except (re.error, TypeError) as exc:
+        return f"job_reaper_keep is not a valid pattern ({exc}); nothing is reaped"
+    return ""
+
+
+class _Rules(NamedTuple):
+    after_s: int
+    max_s: int
+    keep: re.Pattern | None
+
+
+def _rules(minimum_age_s: int | None = None) -> _Rules | None:
+    """One pass's rules, or None while ``problem()`` says why."""
+    try:
+        keep = keep_pattern()
+    except (re.error, TypeError):
+        return None
+    after = after_s() if minimum_age_s is None else max(0, int(minimum_age_s))
+    return _Rules(after, max_s(), keep)
+
+
+def _span(seconds: int) -> str:
+    if seconds and seconds % 3600 == 0:
+        return f"{seconds // 3600} h"
+    if seconds and seconds % 60 == 0:
+        return f"{seconds // 60} min"
+    return f"{seconds} s"
 
 
 def data_dir() -> Path:
@@ -94,37 +163,54 @@ def _snapshot(proc: str, pid: int) -> tuple[int, int, list[str]] | None:
     return parent, started, command
 
 
+def _judge(proc: str, pid: int, now: float, boot: float | None, ticks: int,
+           rules: _Rules) -> dict | None:
+    """The stuck row for one process, or None when it is not a stuck job."""
+    candidate = _snapshot(proc, pid)
+    if not candidate:
+        return None
+    parent, started, command = candidate
+    # A nested shell belongs to the outer snapshot-shell job.
+    if bgjobs.is_snapshot_shell(bgjobs.argv(proc, parent)):
+        return None
+    if rules.keep and rules.keep.search(bgjobs.raw_command(command)):
+        return None
+    age = bgjobs._age(started, boot, now, ticks)
+    if age is None:
+        return None
+    # A live Claude owner, direct or further up, makes it that session's job.
+    if has_claude_ancestor(proc, parent):
+        if not rules.max_s or age <= rules.max_s:
+            return None
+        why = f"over {_span(rules.max_s)}"
+    elif age < rules.after_s:
+        return None
+    else:
+        why = f"orphaned, over {_span(rules.after_s)}"
+    return {"pid": pid, "ppid": parent, "start_ticks": started, "age_s": age,
+            "cmd": bgjobs.command_of(command, 160), "why": why}
+
+
 def stuck(proc: str = "/proc", now: float | None = None,
           minimum_age_s: int | None = None) -> list[dict]:
-    """Return aged snapshot shells whose Claude owner no longer exists."""
+    """The snapshot-shell jobs a pass would stop, oldest first, each with why:
+    orphans past ``job_reaper_after_min`` (or *minimum_age_s*) and, once
+    ``job_reaper_max_hours`` is set, jobs under a live session past it."""
+    rules = _rules(minimum_age_s)
+    if rules is None:
+        return []
     try:
         moment = time.time() if now is None else float(now)
-        minimum = after_s() if minimum_age_s is None else max(0, int(minimum_age_s))
         boot = bgjobs.boot_time(proc)
-        ticks = bgjobs._clock_ticks()
         if boot is None:
             return []
+        ticks = bgjobs._clock_ticks()
         rows = []
         for name in os.listdir(proc):
-            if not name.isdigit():
-                continue
-            pid = int(name)
-            candidate = _snapshot(proc, pid)
-            if not candidate:
-                continue
-            parent, started, command = candidate
-            # A nested shell belongs to the outer snapshot-shell job.
-            if bgjobs.is_snapshot_shell(bgjobs.argv(proc, parent)):
-                continue
-            # Do not signal a shell while its direct or indirect Claude owner
-            # is alive.  The ancestor walk is deliberately conservative.
-            if has_claude_ancestor(proc, parent):
-                continue
-            age = bgjobs._age(started, boot, moment, ticks)
-            if age is None or age < minimum:
-                continue
-            rows.append({"pid": pid, "ppid": parent, "start_ticks": started,
-                         "age_s": age, "cmd": bgjobs.command_of(command, 160)})
+            if name.isdigit():
+                row = _judge(proc, int(name), moment, boot, ticks, rules)
+                if row:
+                    rows.append(row)
         return sorted(rows, key=lambda row: (-row["age_s"], row["pid"]))
     except (OSError, ValueError):
         return []
@@ -173,30 +259,43 @@ def _tree(proc: str, root: int) -> list[tuple[int, int]]:
     return found
 
 
-def kill(row: dict, proc: str = "/proc", *, signal_fn=None,
-         sleep_fn=None, grace_s: float = 1.0, own_pid: int | None = None) -> list[int]:
-    """Terminate an orphan snapshot-shell tree and return signalled pids.
+def kill(row: dict, proc: str = "/proc", *, signal_fn=None, sleep_fn=None,
+         grace_s: float = GRACE_S, own_pid: int | None = None,
+         now: float | None = None, minimum_age_s: int | None = None) -> list[int]:
+    """Terminate a stuck snapshot-shell tree and return signalled pids.
 
-    Identity checks avoid signalling a recycled pid.  The root is checked for
-    a live Claude ancestor before each signal pass.
+    The root is judged again by stuck()'s rules before each SIGTERM, so a job
+    that is no longer stuck is left alone. After the grace, every process of
+    the tree still running is forced by its own identity, even once the shell
+    itself has gone, and a recycled pid is never signalled.
     """
     try:
         root = int(row["pid"])
         start = int(row["start_ticks"])
     except (KeyError, TypeError, ValueError):
         return []
-    if not _same_process(proc, root, start) or has_claude_ancestor(proc, root):
+    rules = _rules(minimum_age_s)
+    if rules is None:
+        return []
+    moment = time.time() if now is None else float(now)
+    boot, ticks = bgjobs.boot_time(proc), bgjobs._clock_ticks()
+
+    def still_stuck() -> bool:
+        again = _judge(proc, root, moment, boot, ticks, rules)
+        return bool(again and again["start_ticks"] == start)
+
+    if not still_stuck():
         return []
     signal_fn = os.kill if signal_fn is None else signal_fn
     sleep_fn = time.sleep if sleep_fn is None else sleep_fn
     mine = os.getpid() if own_pid is None else own_pid
-    targets = [(pid, ticks) for pid, ticks in _tree(proc, root)
+    targets = [(pid, started) for pid, started in _tree(proc, root)
                if pid not in {1, mine} and not is_claude(proc, pid)]
     sent: list[int] = []
-    for pid, ticks in targets:
-        if not _same_process(proc, root, start) or has_claude_ancestor(proc, root):
+    for pid, started in targets:
+        if not still_stuck():
             return sent
-        if not _same_process(proc, pid, ticks):
+        if not _same_process(proc, pid, started):
             continue
         try:
             signal_fn(pid, signal.SIGTERM)
@@ -209,10 +308,8 @@ def kill(row: dict, proc: str = "/proc", *, signal_fn=None,
         sleep_fn(max(0.0, float(grace_s)))
     except (TypeError, ValueError):
         pass
-    if not _same_process(proc, root, start) or has_claude_ancestor(proc, root):
-        return sent
-    for pid, ticks in targets:
-        if not _same_process(proc, pid, ticks):
+    for pid, started in targets:
+        if not _same_process(proc, pid, started):
             continue
         try:
             signal_fn(pid, signal.SIGKILL)
@@ -227,7 +324,8 @@ def log_kill(row: dict, directory: Path | None = None, now: float | None = None)
         when = time.time() if now is None else float(now)
         record = {"at": datetime.fromtimestamp(when, timezone.utc).isoformat(timespec="seconds"),
                   "pid": int(row["pid"]), "ppid": int(row["ppid"]),
-                  "age_s": int(row["age_s"]), "cmd": str(row["cmd"])[:160]}
+                  "age_s": int(row["age_s"]), "why": str(row.get("why", "")),
+                  "cmd": str(row["cmd"])[:160]}
         path = log_path(directory)
         path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
@@ -242,12 +340,14 @@ def log_kill(row: dict, directory: Path | None = None, now: float | None = None)
 
 def reap(proc: str = "/proc", directory: Path | None = None, now: float | None = None,
          minimum_age_s: int | None = None, *, signal_fn=None, sleep_fn=None) -> list[dict]:
-    """Kill and audit every currently eligible orphan snapshot-shell job."""
+    """Kill and audit every currently stuck snapshot-shell job."""
+    moment = time.time() if now is None else float(now)
     reaped = []
-    for row in stuck(proc, now, minimum_age_s):
-        sent = kill(row, proc, signal_fn=signal_fn, sleep_fn=sleep_fn)
+    for row in stuck(proc, moment, minimum_age_s):
+        sent = kill(row, proc, signal_fn=signal_fn, sleep_fn=sleep_fn,
+                    now=moment, minimum_age_s=minimum_age_s)
         if sent:
-            log_kill(row, directory, now)
+            log_kill(row, directory, moment)
             reaped.append(row)
     return reaped
 
@@ -284,3 +384,36 @@ def start(directory: Path | None = None) -> Watcher | None:
     watcher = Watcher(directory)
     watcher.start()
     return watcher
+
+
+def main(argv: list[str] | None = None) -> int:
+    """One pass from the command line, for a timer of your own instead of the
+    server's worker. --dry-run lists what would go and signals nothing. Always
+    exits 0, so the timer never reads as failed."""
+    args = sys.argv[1:] if argv is None else list(argv)
+    if any(arg in ("-h", "--help") for arg in args):
+        print("usage: python3 -m agent_companion.jobreaper [--dry-run]")
+        return 0
+    if any(arg != "--dry-run" for arg in args):
+        print("job reaper: unsupported arguments")
+        return 0
+    try:
+        why = problem()
+        if why:
+            print(f"job reaper: {why}")
+            return 0
+        if "--dry-run" in args:
+            rows = stuck()
+            for row in rows:
+                print(f"would kill pid={row['pid']} age={row['age_s'] / 3600:.1f}h "
+                      f"why={row['why']} cmd={row['cmd']}")
+            print(f"job reaper: {len(rows)} stuck job(s), dry run")
+            return 0
+        print(f"job reaper: killed {len(reap())} stuck job(s)")
+    except Exception:
+        print("job reaper: no jobs reaped")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

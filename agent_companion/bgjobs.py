@@ -11,18 +11,28 @@ import re
 import shlex
 import time
 
-CMD_LIMIT = 96
+# A card shows a job's first 60 characters, with an ellipsis where it was cut.
+CMD_LIMIT = 60
 _SNAPSHOT = re.compile(r"(?:^|/)shell-snapshots/snapshot-[^\s/]+\.sh")
 _EVAL = re.compile(r"\beval\s+('(?:[^']|'\"'\"')*')", re.S)
 # A label keeps a command's words up to the first one that could carry a
 # credential, and drops everything from there. Deliberately blunt, since a
-# status line loses little by cutting early: any word containing a
-# secret-ish fragment anywhere (GH_TOKEN=, --proxy-user, ?access_token=,
-# a,password=b), a single-dash bundle holding u, p or H (-su, -ppw), Bearer
-# or Basic, or a URL with userinfo.
+# status line loses little by cutting early, yet an everyday command reads
+# whole. A path's folders are names, never values. Fragments that are also
+# ordinary words (Users, session-companion, design, headers.py, pwd) cut only
+# where they name a value: a --flag (--proxy-user, --header) or an assignment
+# (GH_TOKEN=, ?sig=, a,password=b, "user":). The rest cut in any word too, a
+# path's last part included (htpasswd, ~/bin/secret). A single-dash bundle
+# cuts by what it carries: -H always; -u or -U with a user:pass or user%pass
+# value (-su u:p, -uadmin:p); -p or -P with anything but a path, a number, a
+# $variable or a name:value (-ppw, sshpass -p pw; not mkdir -p, ssh -p 22 or
+# pytest -p no:cacheprovider). So do Bearer, Basic and a URL with userinfo.
 SCAN_LIMIT = 2048
-_SECRET_WORD = re.compile(r"token|key|pass|pwd|secret|auth|credential|cookie|user|session|sig|header", re.I)
-_SHORT_FLAG = re.compile(r"-[A-Za-z]*[upHUP]")
+_SECRET_WORD = re.compile(r"token|key|passw|passphrase|secret|credential|cookie", re.I)
+_SECRET_NAME = re.compile(r"token|key|pass|pwd|secret|auth|credential|cookie|user|session|sig|header", re.I)
+_ASSIGNED = re.compile(r"([\w.-]+)[\"']?[=:]")
+_BUNDLE = re.compile(r"-([A-Za-z]+)(.*)", re.S)
+_NAME_VALUE = re.compile(r"[\w.-]+:[\w.:-]*")
 
 
 def stat(proc: str, pid: int) -> tuple[int, int] | None:
@@ -68,20 +78,65 @@ def raw_command(command: list[str]) -> str:
     return words[1] if len(words) > 1 else ""
 
 
-def _risky(word: str) -> bool:
-    bare = word.strip("'\"")
-    if _SECRET_WORD.search(bare) or _SHORT_FLAG.match(bare):
+def _plain(value: str) -> bool:
+    """A value no password looks like: none, a path, a number, a $variable or
+    a name:value (a port mapping, a pytest plugin)."""
+    bare = value.strip("'\"")
+    return (not bare or "/" in bare or bare.startswith("$")
+            or bare.lstrip("-").isdigit() or bool(_NAME_VALUE.fullmatch(bare)))
+
+
+def _bundle_risky(word: str, following: str) -> bool:
+    """A single-dash bundle (-H, -su, -ppw) that could carry a credential."""
+    match = _BUNDLE.match(word)
+    if not match:
+        return False
+    letters, rest = match.groups()
+    if "H" in letters:
         return True
+    for i, letter in enumerate(letters):
+        value = (letters[i + 1:] + rest) or following
+        if letter in "uU" and (":" in value or "%" in value):
+            return True
+        if letter in "pP" and not _plain(value):
+            return True
+    return False
+
+
+def _flag_risky(name: str, value: str) -> bool:
+    """A --flag named for a credential. --no-<x> takes no value, and one named
+    only for a user (--user, --proxy-user) is judged like -u, by its value."""
+    if name.startswith("no-"):
+        return False
+    found = {match.group(0).lower() for match in _SECRET_NAME.finditer(name)}
+    if found == {"user"}:
+        return ":" in value or "%" in value
+    return bool(found)
+
+
+def _risky(word: str, following: str = "") -> bool:
+    bare = word.strip("'\"")
     if bare.lower() in {"bearer", "basic"}:
         return True
-    return "://" in bare and "@" in bare.split("://", 1)[1].split("/", 1)[0]
+    if bare.startswith("--"):
+        name, equals, attached = bare[2:].partition("=")
+        if _flag_risky(name, attached if equals else following):
+            return True
+        bare = attached                 # an attached value is judged as any word
+    elif _bundle_risky(bare, following):
+        return True
+    if any(_SECRET_NAME.search(name) for name in _ASSIGNED.findall(bare)):
+        return True
+    if "://" in bare:
+        return "@" in bare.split("://", 1)[1].split("/", 1)[0]
+    return bool(_SECRET_WORD.search(bare.rstrip("/").rsplit("/", 1)[-1]))
 
 
 def redact(value: str) -> str:
     """Avoid returning command-line credentials through the dashboard API."""
     words = value[:SCAN_LIMIT].split(" ")
     for i, word in enumerate(words):
-        if _risky(word):
+        if _risky(word, words[i + 1] if i + 1 < len(words) else ""):
             return " ".join(words[:i] + ["[redacted]"])
     return " ".join(words)
 

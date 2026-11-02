@@ -57,6 +57,14 @@ app_name = "Companion"
 # every 10 minutes by default; set job_reaper_every_min = 0 to turn it off.
 # job_reaper_after_min = 60
 # job_reaper_every_min = 10
+# A job under a live session is left alone unless this is set; then it is
+# reaped past this many hours too (a forgotten `until ...; do sleep 5; done`).
+# job_reaper_max_hours = 6
+# Commands never reaped: a regular expression, matched without regard to case.
+# Single quotes make it a TOML literal string, so backslashes stay as written.
+# job_reaper_keep = '# keep-running|\buvicorn\b|\bnpm\s+run\s+dev\b|\btail\s+-f\b'
+# One pass from a timer of your own instead: python3 -m agent_companion.jobreaper
+# (--dry-run lists what it would stop and signals nothing).
 
 # Notes between two people's Claudes on a shared repo (COLLAB.md)
 # collab_label = "for-alex"        # your label: notes filed for you
