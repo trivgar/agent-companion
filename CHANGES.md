@@ -3,6 +3,22 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## 2026-11-02
+- New session moved to `GET /api/newsession/projects` and
+  `POST /api/newsession`. The list gives each project's `key`, `label`, the
+  sessions already in it (`sessions`, `note`), `available` and `reason`, with
+  `default_model`; the page posts `{project: key, message}` and gets
+  `{ok, tmux, pid, detail}` back: 400 for an unknown key or a bad message,
+  500 when the start failed, in words. A `[[projects]]` row may add `key`,
+  `label` and tmux `prefix` (each defaults to the name), and
+  `[new_session].claude_args` lists words every start passes to claude.
+- A new session's command is typed into the new tmux pane's shell, so your
+  login shell's PATH and profile apply and the pane stays open when claude
+  exits. It is named after its tmux session (`--name`), and a start counts
+  once a Claude process (`claude`, or `node` for an npm install) is seen in
+  that folder on that pane, within 12 s. The first message is one line of at
+  most 4,000 characters, its control characters turned to spaces so none can
+  act on the typed line. Each attempt goes in the chat log with the
+  message's length, never its words.
 - Comms controls follow the coordinator's own files. Levels are read from and
   written to `volume.conf` in the coordinator directory, one key in place, so
   its comments and every other key stay: `voice_gain` in dB (-20 to 14),

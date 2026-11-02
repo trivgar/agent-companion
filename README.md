@@ -62,7 +62,7 @@ Claude limits, and, when local Codex rollout logs exist, Codex plan limits.
 minutes. After a reboot or crash, the Sessions tab lists missing sessions and
 can resume them in their old tmux names and folders.
 
-**New session.** Start Claude in a folder listed in `[projects]` with an optional first prompt; the page never accepts a path, and unavailable folders stay disabled.
+**New session.** Start Claude in a folder listed in `[projects]` with an optional first message; the page sends a project's key, never a path, says who already works there, and keeps unavailable folders disabled. The command is typed into a new tmux pane's shell, and a start counts once a Claude process is seen in that pane.
 
 **Files.** Browse configured project trees, open bounded text files and save an
 edit. Files git ignores, binary files and files over 1 MB stay out of the
@@ -394,9 +394,9 @@ hooks run outside any server's process.
 | `restore_snapshot_interval_min` | Snapshot timer cadence in minutes, 1 through 60; default 5 |
 | `systemd_user_dir` | Where the restore timer installer writes user units; default `~/.config/systemd/user` |
 | `restore_python` | Python executable the restore timer runs; default is the Python that installed it |
-| `[projects]` | Project name to folder. The Files tab browses and edits only these; New session starts Claude only in these. |
+| `[projects]` | Project name to folder. The Files tab browses and edits only these; New session starts Claude only in these. A `[[projects]]` row (`name`, `path`) may add New session's `key` (what the page sends), `label` and tmux `prefix`; they default to the name. |
 | `spec_globs` | Extra design-document globs relative to every `[projects]` root. Matches in a path containing `plan` are plans; other matches are specs. |
-| `[new_session]` | `default_model` for New session (an older `projects` list here is still read) |
+| `[new_session]` | New session's `default_model`, and `claude_args`: words every start passes to claude, such as a permission mode (an older `projects` list here is still read) |
 
 ### Helpers and background jobs
 
