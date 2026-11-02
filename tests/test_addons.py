@@ -24,6 +24,7 @@ def test_no_module_gives_the_defaults(monkeypatch):
     assert addons.chat_target({"name": "Ada"}) is True
     assert addons.chat_characters({"name": "Ada"}) == []
     assert addons.chat_action("end", {"name": "Ada"}, {}) is None
+    assert addons.voice_host_status("main", None, 0.0) == {}
     addons.on_ask("created", {"id": "a"})
 
 
@@ -50,7 +51,7 @@ def test_a_broken_plugin_fails_safe(monkeypatch):
     def boom(*a):
         raise RuntimeError("no")
     _plug(monkeypatch, person=boom, asleep=boom, comms_busy=boom, on_ask=boom, private=boom,
-          chat_target=boom, chat_characters=boom, chat_action=boom)
+          chat_target=boom, chat_characters=boom, chat_action=boom, voice_host_status=boom)
     assert addons.person(object()) is None
     assert addons.asleep() is True
     assert addons.comms_busy() is True
@@ -58,6 +59,7 @@ def test_a_broken_plugin_fails_safe(monkeypatch):
     assert addons.chat_target({"name": "Ada"}) is False
     assert addons.chat_characters({"name": "Ada"}) == []
     assert addons.chat_action("end", {"name": "Ada"}, {}) is None
+    assert addons.voice_host_status("main", None, 0.0) == {}
     addons.on_ask("created", {"id": "a"})
 
 

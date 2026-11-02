@@ -37,6 +37,18 @@ What moved, and whether your settings need anything. Newest first.
   It still finds the browsers Playwright installed and the leak check's deny
   list; `AGENT_COMPANION_LEAK_TERMS` now reaches the leak check instead of
   being cleared with the other settings.
+- `/api/tts/voices` says it as both pages do: each host's reason, joined by
+  commas; "the last clip used them; the voices are back now" for five minutes
+  after a clip that went to the backup voices (the newest `REMOTE(...)` line
+  in the coordinator's `speak.log` says FALLBACK); and "Voices on X only: ..."
+  while one host carries every voice. New optional settings table
+  `[voice_host_names.<host>]` (`subject`, `possessive`, `place`) names a host
+  whose bare name reads wrong. New add-on hook `voice_host_status(host, report,
+  now)` can give a host's reason or mark it resting (down on purpose, left out
+  of that line); it never makes a host ready. `own_versions` now reads each
+  host's own row in a hosts file with comments (it read the wrong line), and
+  callers arriving while the first answer is worked out wait for it instead
+  of asking every host again.
 
 ## 2026-10-29
 - Comms now uses the full `/api/tts/*` coordinator API and the voice lab has

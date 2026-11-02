@@ -96,3 +96,13 @@ def chat_action(action: str, target: dict, body: dict) -> dict | None:
     """
     got = _call("chat_action", None, None, action, target, body)
     return got if isinstance(got, dict) else None
+
+
+def voice_host_status(host: str, report: dict | None, now: float) -> dict:
+    """What only you know about a voice host that is not ready: {"why":
+    words} replaces the core's reason (a host stopped on purpose, say), and
+    {"resting": True} marks it down on purpose, so the quiet "Voices on X
+    only" line leaves it out. Nothing here makes a host ready, so a broken
+    add-on costs only its words."""
+    got = _call("voice_host_status", None, None, host, report, now)
+    return got if isinstance(got, dict) else {}
