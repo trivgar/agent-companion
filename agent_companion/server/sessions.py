@@ -6,7 +6,7 @@ import os
 import threading
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends
 
 from .. import bgjobs, clearline, codex_limits, config
 from ..gitstate import GitState
@@ -106,19 +106,3 @@ def usage():
     return out
 
 
-@router.get("/api/clearline", dependencies=[Depends(auth.require_token)])
-def get_clear_line():
-    return {"tokens": clearline.get()}
-
-
-@router.post("/api/clearline", dependencies=[Depends(auth.require_write)])
-async def set_clear_line(request: Request):
-    try:
-        body = await request.json()
-    except ValueError:
-        body = {}
-    tokens = body.get("tokens") if isinstance(body, dict) else None
-    try:
-        return {"tokens": clearline.put(tokens)}
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))

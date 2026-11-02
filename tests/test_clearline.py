@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -52,6 +53,19 @@ def test_over_skips_children_and_rows_without_context():
     assert not clearline.over({"context_used": True}, 400_000)
 
 
+def test_the_over_file_is_a_setting(tmp_path, monkeypatch):
+    config = tmp_path / "config.toml"
+    monkeypatch.setenv("AGENT_COMPANION_CONFIG", str(config))
+    monkeypatch.setenv("AGENT_COMPANION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("AGENT_COMPANION_CLEAR_OVER", raising=False)
+    config.write_text("")
+    assert clearline.over_file() == tmp_path / "data" / "needs-clear.json"
+    config.write_text('clear_over_file = "~/hooks/needs-clear.json"\n')
+    assert clearline.over_file() == Path.home() / "hooks" / "needs-clear.json"
+    monkeypatch.setenv("AGENT_COMPANION_CLEAR_OVER", str(tmp_path / "env.json"))
+    assert clearline.over_file() == tmp_path / "env.json"
+
+
 def test_watcher_pushes_once_per_crossing_and_writes_state(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_COMPANION_CLEARLINE", str(tmp_path / "line.json"))
     rows = [{"session_id": "abcdef1234", "speaker": "Session", "project": "sample",
@@ -61,7 +75,8 @@ def test_watcher_pushes_once_per_crossing_and_writes_state(tmp_path, monkeypatch
     watcher = clearline.Watcher(lambda: [dict(row) for row in rows],
                                 lambda *args: sent.append(args) or True, path=state)
     assert watcher.tick() == ["abcdef1234"]
-    assert sent == [("Needs a /clear", "Session (sample) is at 447k: needs a /clear", "/", "clear-abcdef12")]
+    assert sent == [("Needs a /clear", "Session (sample) is at 447k: needs a /clear", "/?agent=Session",
+                     "clear-abcdef12")]
     saved = clearline.read_over(state)["over"]["abcdef1234"]
     assert saved["speaker"] == "Session" and saved["project"] == "sample"
     assert saved["used"] == 447_000 and saved["pushed"] is True and saved["since"]
@@ -80,6 +95,35 @@ def test_watcher_retries_a_failed_push(tmp_path, monkeypatch):
     assert watcher.tick() == []
     sent[0] = True
     assert watcher.tick() == ["s1"]
+
+
+def test_watcher_waits_while_the_owner_sleeps_and_taps_through(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_CLEARLINE", str(tmp_path / "line.json"))
+    rows = [{"session_id": "abcdef1234", "speaker": "Night Owl", "project": "sample",
+             "context_used": 447_000}]
+    sent, sleeping = [], [True]
+    state = tmp_path / "over.json"
+    watcher = clearline.Watcher(lambda: [dict(row) for row in rows],
+                                lambda *args: sent.append(args) or True, path=state,
+                                asleep=lambda: sleeping[0])
+    assert watcher.tick() == [] and sent == []                 # asleep: it waits, unsent
+    assert "abcdef1234" in clearline.read_over(state)["over"]  # and the flag is still written
+    sleeping[0] = False
+    assert watcher.tick() == ["abcdef1234"]
+    assert sent[0][2] == "/?agent=Night%20Owl"
+    assert watcher.tick() == [] and len(sent) == 1
+
+
+def test_an_asleep_check_that_fails_counts_as_awake(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_CLEARLINE", str(tmp_path / "line.json"))
+
+    def broken():
+        raise RuntimeError("no idea")
+    sent = []
+    watcher = clearline.Watcher(lambda: [{"session_id": "s1", "context_used": 500_000}],
+                                lambda *args: sent.append(args) or True, path=tmp_path / "over.json",
+                                asleep=broken)
+    assert watcher.tick() == ["s1"] and sent[0][2] == "/"
 
 
 def test_watcher_refuses_to_start_under_pytest():
@@ -114,3 +158,27 @@ def test_routes_protect_the_line_and_add_session_flags(tmp_path, monkeypatch):
     assert client.post("/api/clearline", json={"tokens": 600_000}, headers=WRITE).json() == {"tokens": 600_000}
     rows = {row["session_id"]: row for row in client.get("/api/sessions", headers=KEY).json()}
     assert rows["over"]["clear_line"] == 600_000 and rows["over"]["needs_clear"] is False
+
+
+def test_the_line_has_a_router_of_its_own_without_the_sessions_view():
+    from agent_companion.server import clearline as routes
+    assert {(m, r.path) for r in routes.router.routes for m in r.methods} == {
+        ("GET", "/api/clearline"), ("POST", "/api/clearline")}
+    assert not [r for r in sessions.router.routes if r.path == "/api/clearline"]
+
+
+def test_the_line_is_never_cached_and_a_failed_save_says_so(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("AGENT_COMPANION_CLEARLINE", str(tmp_path / "line.json"))
+    client = TestClient(server.create_app(token=TOKEN, owner_key=OWNER))
+    got = client.get("/api/clearline", headers=KEY)
+    assert got.json() == {"tokens": 400_000} and got.headers["cache-control"] == "no-store"
+    saved = client.post("/api/clearline", json={"tokens": 600_000}, headers=WRITE)
+    assert saved.json() == {"tokens": 600_000} and saved.headers["cache-control"] == "no-store"
+
+    def full(tokens):
+        raise OSError("disk full")
+    monkeypatch.setattr(clearline, "put", full)
+    failed = client.post("/api/clearline", json={"tokens": 700_000}, headers=WRITE)
+    assert failed.status_code == 500
+    assert failed.json() == {"tokens": 600_000, "detail": "could not save it: disk full"}
