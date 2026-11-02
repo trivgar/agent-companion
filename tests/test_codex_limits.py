@@ -188,4 +188,6 @@ def test_sessions_usage_and_strip_include_the_optional_codex_reading():
     assert 'out["codex"] = codex_limits.read()' in route
     assert "Codex ${codex.join(' · ')}" in strip
     assert "5h ${Math.round(c.five_hour.utilization)}%" in strip
+    assert "${label} ${Math.round(c.utilization)}%" in strip
+    assert "Codex: ${c.why}" in strip
     assert "as of ${ago(c.age_seconds)}" in strip

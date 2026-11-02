@@ -266,12 +266,15 @@
       bits.push(...[w('five_hour', '5h limit'), w('seven_day', '7d limit')].filter(Boolean));
     } else if (l.reason) bits.push(`limits: ${l.reason}`);
     if (c.enabled && c.available) {
+      // The plan's long window is at the top level, whatever its length.
+      const wm = c.window_minutes || 10080;
+      const label = wm === 10080 ? 'wk' : `${Math.round(wm / 1440)}d`;
       const codex = [
         c.five_hour && c.five_hour.utilization != null ? `5h ${Math.round(c.five_hour.utilization)}%` : '',
-        c.week && c.week.utilization != null ? `wk ${Math.round(c.week.utilization)}%` : '',
+        c.utilization != null ? `${label} ${Math.round(c.utilization)}%` : '',
       ].filter(Boolean);
       if (codex.length) bits.push(`Codex ${codex.join(' · ')}${c.age_seconds != null ? ` (as of ${ago(c.age_seconds)})` : ''}`);
-    } else if (c.enabled && c.reason) bits.push(`Codex: ${c.reason}`);
+    } else if (c.enabled && c.why) bits.push(`Codex: ${c.why}`);
     const machine = machineStrip(health);
     if (machine) bits.push(machine);
     document.getElementById('strip').textContent = bits.join(' | ');
