@@ -1,6 +1,6 @@
-// Files: browse the configured project trees, open a bounded text file, and
-// save an edit with the version that was opened.  The server remains the
-// authority for every path and for deciding whether a commit is allowed.
+// Files: browse every checkout's tree, open a file, and save an edit with the
+// version that was opened (its sha).  The server remains the authority for
+// every path and for deciding whether a commit is allowed.
 'use strict';
 (function () {
   const CC = window.CC, esc = CC.esc;
@@ -16,6 +16,7 @@
     .files .tree button { display:block; width:100%; min-height:40px; overflow-wrap:anywhere; }
     .files .dir::before { content:'› '; color:var(--dim); } .files .up { color:var(--dim) !important; }
     .files textarea { min-height:50vh; resize:vertical; font:.85rem/1.4 ui-monospace, Menlo, monospace; white-space:pre; overflow:auto; }
+    .files .shot { max-width:100%; height:auto; }
     .files .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:10px 0; }
     .files .note { color:var(--dim); font-size:.86rem; margin:0; overflow-wrap:anywhere; }
     .files .status { min-height:1.4em; color:var(--dim); margin:8px 0 0; overflow-wrap:anywhere; }
@@ -23,15 +24,18 @@
   `;
   document.head.appendChild(css);
 
-  let box, projects = [], selected = '', folder = '', opened = null, draft = '', message = '', busy = false;
+  let box, repos = [], selected = '', folder = '', opened = null, draft = '', message = '', busy = false, shot = '';
 
   const join = (a, b) => a ? `${a}/${b}` : b;
   const parent = p => p ? p.split('/').slice(0, -1).join('/') : '';
+  const names = () => repos.flatMap(r => r.checkouts.map(c => c.name));
+  const query = path => new URLSearchParams({checkout: selected, path}).toString();
 
   function header() {
     const crumbs = folder ? folder.split('/') : [];
-    return `<div class="top"><label>Project<select data-project>${projects.map(p =>
-      `<option value="${esc(p.name)}"${p.name === selected ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label></div>
+    return `<div class="top"><label>Checkout<select data-checkout>${repos.map(r =>
+      `<optgroup label="${esc(r.repo)}">${r.checkouts.map(c =>
+        `<option value="${esc(c.name)}"${c.name === selected ? ' selected' : ''}>${esc(c.name)}${c.branch ? ` · ${esc(c.branch)}` : ''}</option>`).join('')}</optgroup>`).join('')}</select></label></div>
       <nav class="crumbs" aria-label="Path"><button type="button" data-folder="">${esc(selected)}</button>${crumbs.map((part, i) =>
         `<span class="slash">/</span><button type="button" data-folder="${esc(crumbs.slice(0, i + 1).join('/'))}">${esc(part)}</button>`).join('')}</nav>`;
   }
@@ -44,36 +48,57 @@
 
   async function drawTree() {
     if (!selected) {
-      box.innerHTML = '<p class="empty">No projects are configured. Add a [projects] table to config.toml.</p>';
+      box.innerHTML = '<p class="empty">No checkouts found. List folders in checkout_dirs, or add a [projects] table to config.toml.</p>';
       return;
     }
     box.innerHTML = header() + '<p class="empty">Loading files...</p>';
     let data;
-    try { data = await CC.get(`/api/files/tree?project=${encodeURIComponent(selected)}&path=${encodeURIComponent(folder)}`); }
+    try { data = await CC.get(`/api/files/tree?${query(folder)}`); }
     catch (error) { box.innerHTML = header() + `<p class="empty">${esc(error.message)}</p>`; return; }
+    if (!data.ok) { box.innerHTML = header() + `<p class="empty">${esc(data.detail || 'Not found.')}</p>`; return; }
     const up = folder ? `<li><button type="button" class="up" data-folder="${esc(parent(folder))}">..</button></li>` : '';
     const dirs = data.dirs.map(name => `<li><button type="button" class="dir" data-folder="${esc(join(folder, name))}">${esc(name)}</button></li>`).join('');
     const files = data.files.map(name => `<li><button type="button" data-file="${esc(join(folder, name))}">${esc(name)}</button></li>`).join('');
-    box.innerHTML = header() + `<div class="card"><ul class="tree">${up}${dirs}${files || (dirs ? '' : '<li class="empty">No readable text files here.</li>')}</ul></div>`;
+    box.innerHTML = header() + `<div class="card"><ul class="tree">${up}${dirs}${files || (dirs ? '' : '<li class="empty">No files here.</li>')}</ul></div>`;
   }
 
   function drawFile() {
     if (!opened) return drawTree();
     const name = opened.path.split('/').pop();
+    if (!opened.editable) {
+      const why = opened.image ? '' : opened.cut ? 'This file is too big to edit here.' : 'This file is not text, so it is not shown here.';
+      box.innerHTML = header() + `<div class="card"><p class="note"><b>${esc(name)}</b></p>
+        ${opened.image ? (shot ? `<img class="shot" src="${shot}" alt="${esc(name)}">` : '<p class="note">Loading the image...</p>') : `<p class="note">${esc(why)}</p>`}
+        <div class="bar"><button type="button" class="act" data-back>Back</button></div></div>`;
+      return;
+    }
     box.innerHTML = header() + `<div class="card"><p class="note">Editing <b>${esc(name)}</b>. A save commits only if this file was clean when it was opened. Nothing is pushed.</p>
       <textarea aria-label="File contents" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off">${esc(draft)}</textarea>
       <div class="bar"><button type="button" class="act" data-back>Back</button><button type="button" class="act primary" data-save${busy ? ' disabled' : ''}>Save</button></div>
       <p class="status${message ? '' : ' faint'}" role="status">${esc(message)}</p></div>`;
   }
 
+  async function showImage(path) {
+    // The key travels as a header, never in an address, so the image comes as bytes.
+    try {
+      const r = await CC.fetchAuthed(`/api/files/raw?${query(path)}`);
+      if (r.ok && opened && opened.path === path) { shot = URL.createObjectURL(await r.blob()); drawFile(); }
+    } catch (error) { /* the note stays */ }
+  }
+
   async function open(path) {
     message = '';
     try {
-      opened = await CC.get(`/api/files/file?project=${encodeURIComponent(selected)}&path=${encodeURIComponent(path)}`);
+      const got = await CC.get(`/api/files/file?${query(path)}`);
+      if (!got.ok) { status(got.detail || 'No such file.', true); return; }
+      opened = got;
       folder = parent(path);
-      draft = opened.text;
+      draft = opened.text || '';
+      if (shot) { URL.revokeObjectURL(shot); shot = ''; }
       drawFile();
-      box.querySelector('textarea').focus();
+      if (opened.image) showImage(path);
+      const area = box.querySelector('textarea');
+      if (area) area.focus();
     } catch (error) { status(error.message, true); }
   }
 
@@ -84,16 +109,17 @@
     busy = true;
     status('Saving...');
     try {
-      const result = await CC.post('/api/files/save', {project: selected, path: opened.path, text: draft,
-        mtime_ns: opened.mtime_ns, sha256: opened.sha256});
-      if (result.unchanged) status('No changes to save.');
+      const result = await CC.post('/api/files/save', {checkout: selected, path: opened.path, text: draft,
+        expect: opened.sha});
+      if (!result.ok) status(result.detail || 'Not saved.', true);
+      else if (result.unchanged) status('No changes to save.');
       else if (result.committed) status('Saved and committed. Nothing was pushed.');
-      else status(result.detail || 'Saved, not committed.');
-      if (!result.unchanged) {
+      else status(`Saved, not committed: ${result.not_committed || result.commit_error || 'git said no'}.`);
+      if (result.ok && !result.unchanged) {
         // Refresh the version guard after either a commit or a deliberate
         // no-commit save, so the next save is still protected.
-        opened = await CC.get(`/api/files/file?project=${encodeURIComponent(selected)}&path=${encodeURIComponent(opened.path)}`);
-        draft = opened.text;
+        const again = await CC.get(`/api/files/file?${query(opened.path)}`);
+        if (again.ok) { opened = again; draft = opened.text || ''; }
       }
     } catch (error) {
       status(error.message || 'Not saved.', true);
@@ -102,33 +128,34 @@
     drawFile();
   }
 
+  function leave() {
+    opened = null;
+    draft = '';
+    message = '';
+    if (shot) { URL.revokeObjectURL(shot); shot = ''; }
+  }
+
   function wire() {
     box.addEventListener('change', event => {
-      const select = event.target.closest('[data-project]');
+      const select = event.target.closest('[data-checkout]');
       if (!select) return;
       selected = select.value;
       folder = '';
-      opened = null;
-      draft = '';
-      message = '';
+      leave();
       drawTree();
     });
     box.addEventListener('click', event => {
       const folderButton = event.target.closest('[data-folder]');
       if (folderButton) {
         folder = folderButton.dataset.folder || '';
-        opened = null;
-        draft = '';
-        message = '';
+        leave();
         drawTree();
         return;
       }
       const fileButton = event.target.closest('[data-file]');
       if (fileButton) { open(fileButton.dataset.file); return; }
       if (event.target.closest('[data-back]')) {
-        opened = null;
-        draft = '';
-        message = '';
+        leave();
         drawTree();
         return;
       }
@@ -141,8 +168,8 @@
     async refresh() {
       if (busy || opened) return;
       const data = await CC.get('/api/files');
-      projects = Array.isArray(data.projects) ? data.projects : [];
-      if (!projects.some(item => item.name === selected)) selected = projects.length ? projects[0].name : '';
+      repos = Array.isArray(data.repos) ? data.repos : [];
+      if (!names().includes(selected)) selected = names()[0] || '';
       await drawTree();
     },
   });

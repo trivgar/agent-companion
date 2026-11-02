@@ -3,6 +3,31 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## 2026-11-02
+- Specs and Files moved to the shape their first host app had, one copy for
+  both. Checkouts come from `checkout_dirs` (the child folders of each listed
+  folder; a listed folder is never itself one), else from `[projects]` as
+  before. A repository's worktrees group under it, its main checkout first,
+  else a name in `checkout_prefer`, and `checkout_skip` names are never shown.
+- Specs: `GET /api/specs` answers `{ok, docs, agents}`, each doc
+  `{id, project, kind, name, title, date, modified, bytes, repo}` with kind
+  `specs`, `plans` or `docs`, and `agents` says who is working in each
+  repository. `GET /api/specs/doc?id=<project/kind/name>` replaces
+  `/api/specs/file`, and a long document comes back cut (`cut: true`).
+  `spec_globs` is gone: name extra document folders in `spec_folders`
+  instead. Each new spec is pushed once (first sight silent, a burst
+  summarised), remembered in `specs_seen_file`.
+- Files: the routes take `checkout` (was `project`). `GET /api/files` answers
+  `{ok, repos: [{repo, checkouts: [{name, branch}]}], agents}`, `/tree` adds
+  the branch, the last commit and the folder's README, and `/paths`, `/raw`
+  (an image, sandboxed) and `/where` (where a path an agent names lives) are
+  new. Every file git lists shows, less generated folders; binary files and
+  images open read only. A miss is a 200 with `ok: false`.
+  `POST /api/files/save` takes `{checkout, path, text, expect, message,
+  commit}`, `expect` being the `sha` `/file` gave; a file changed since it
+  was opened is a 200 `{ok: false, conflict: true, current}`. A save commits
+  as `files_author_name` and `files_author_email` when set (a repository's
+  own `user.email` wins), with your message or "Update <file>", and is a line
+  in `files_log`.
 - New session moved to `GET /api/newsession/projects` and
   `POST /api/newsession`. The list gives each project's `key`, `label`, the
   sessions already in it (`sessions`, `note`), `available` and `reason`, with
