@@ -1,5 +1,4 @@
-from agent_companion import newsession, projects
-from agent_companion.server import files
+from agent_companion import checkouts, newsession, projects
 
 
 def _config(tmp_path, monkeypatch, text):
@@ -8,13 +7,14 @@ def _config(tmp_path, monkeypatch, text):
     monkeypatch.setenv("AGENT_COMPANION_CONFIG", str(path))
     monkeypatch.delenv("AGENT_COMPANION_PROJECTS", raising=False)
     monkeypatch.delenv("AGENT_COMPANION_NEW_SESSION", raising=False)
+    monkeypatch.delenv("AGENT_COMPANION_CHECKOUT_DIRS", raising=False)
 
 
 def test_one_projects_table_feeds_files_and_the_launcher(tmp_path, monkeypatch):
     api = tmp_path / "api"
     api.mkdir()
     _config(tmp_path, monkeypatch, f'[projects]\napi = "{api}"\n')
-    assert [p["name"] for p in files.projects()] == ["api"]
+    assert [n for n, _ in checkouts.candidates()] == ["api"]
     assert [p["key"] for p in newsession.projects()] == ["api"]
 
 
@@ -30,7 +30,7 @@ def test_the_old_new_session_list_still_works_and_projects_wins_a_shared_name(tm
     assert [(p["key"], p["cwd"]) for p in newsession.projects()] == [("one", str(one.resolve())),
                                                                       ("two", str(two.resolve()))]
     assert newsession.default_model() == "sonnet"
-    assert [p["name"] for p in files.projects()] == ["one", "two"]
+    assert [n for n, _ in checkouts.candidates()] == ["one", "two"]
 
 
 def test_pairs_skips_malformed_rows():
