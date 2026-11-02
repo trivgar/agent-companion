@@ -13,4 +13,4 @@ def reason(_world: dict | None = None) -> str | None:
 
 def held(tts: Path) -> bool:
     """An add-on can add a hold but cannot remove a manual one."""
-    return bool(reason() or agentvibes.hold_state(tts)["held"])
+    return bool(reason() or agentvibes.held(tts))

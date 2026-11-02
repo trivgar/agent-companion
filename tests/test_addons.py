@@ -25,6 +25,7 @@ def test_no_module_gives_the_defaults(monkeypatch):
     assert addons.chat_characters({"name": "Ada"}) == []
     assert addons.chat_action("end", {"name": "Ada"}, {}) is None
     assert addons.voice_host_status("main", None, 0.0) == {}
+    assert addons.tts_fix("undelivered") is None
     addons.on_ask("created", {"id": "a"})
 
 
@@ -51,7 +52,7 @@ def test_a_broken_plugin_fails_safe(monkeypatch):
     def boom(*a):
         raise RuntimeError("no")
     _plug(monkeypatch, person=boom, asleep=boom, comms_busy=boom, on_ask=boom, private=boom,
-          chat_target=boom, chat_characters=boom, chat_action=boom, voice_host_status=boom)
+          chat_target=boom, chat_characters=boom, chat_action=boom, voice_host_status=boom, tts_fix=boom)
     assert addons.person(object()) is None
     assert addons.asleep() is True
     assert addons.comms_busy() is True
@@ -60,7 +61,15 @@ def test_a_broken_plugin_fails_safe(monkeypatch):
     assert addons.chat_characters({"name": "Ada"}) == []
     assert addons.chat_action("end", {"name": "Ada"}, {}) is None
     assert addons.voice_host_status("main", None, 0.0) == {}
+    assert addons.tts_fix("silent") is None
     addons.on_ask("created", {"id": "a"})
+
+
+def test_repair_steps_are_four_texts_whatever_the_plugin_returns(monkeypatch):
+    _plug(monkeypatch, tts_fix=lambda kind: {"what": kind, "cmd": 7, "after": None, "html": "<b>"})
+    assert addons.tts_fix("silent") == {"what": "silent", "where": "", "cmd": "7", "after": ""}
+    _plug(monkeypatch, tts_fix=lambda kind: "restart it")
+    assert addons.tts_fix("silent") is None
 
 
 def test_a_chat_plugin_can_narrow_a_known_target_and_add_actions(monkeypatch):

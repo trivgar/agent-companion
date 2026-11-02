@@ -98,6 +98,16 @@ def chat_action(action: str, target: dict, body: dict) -> dict | None:
     return got if isinstance(got, dict) else None
 
 
+def tts_fix(kind: str) -> dict | None:
+    """Your repair steps for a comms delivery failure, shown with it: kind
+    "undelivered" (a clip never reached the player) or "silent" (it arrived
+    and did not play). {"what", "where", "cmd", "after"}, each text; "cmd"
+    is one line to paste. The core has none, so it names the failure and
+    offers nothing."""
+    got = _call("tts_fix", None, None, kind)
+    return {key: str(got.get(key) or "") for key in ("what", "where", "cmd", "after")} if isinstance(got, dict) else None
+
+
 def voice_host_status(host: str, report: dict | None, now: float) -> dict:
     """What only you know about a voice host that is not ready: {"why":
     words} replaces the core's reason (a host stopped on purpose, say), and
