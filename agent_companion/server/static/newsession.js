@@ -22,15 +22,23 @@
 
   function render(data, message) {
     const projects = Array.isArray(data.projects) ? data.projects : [];
-    const options = projects.map(project => `<option value="${esc(project.name)}"${project.available ? '' : ' disabled'}>${esc(project.name)}${project.available ? '' : ` (${esc(project.reason || 'Unavailable')})`}</option>`).join('');
+    const options = projects.map(project => `<option value="${esc(project.key)}"${project.available ? '' : ' disabled'}>${esc(project.label)}${project.available ? '' : ` (${esc(project.reason || 'Unavailable')})`}</option>`).join('');
     sheet.innerHTML = `<div class="new-session-sheet" role="dialog" aria-modal="true" aria-labelledby="new-session-title">
       <form class="new-session-form"><div class="new-session-head"><h2 id="new-session-title">New session</h2><button type="button" class="act" data-new-session-close>Close</button></div>
       <label>Project<select name="project" required>${options}</select></label>
+      <p class="faint" data-new-session-note></p>
       ${data.default_model ? `<p class="faint">Model: ${esc(data.default_model)}</p>` : ''}
-      <label>First prompt <span class="faint">(optional)</span><textarea name="prompt" rows="4" maxlength="12000"></textarea></label>
+      <label>First message <span class="faint">(optional)</span><textarea name="message" rows="4" maxlength="4000"></textarea></label>
       <p class="new-session-result" role="status">${esc(message || '')}</p>
       <button class="act primary" type="submit" ${projects.some(p => p.available) ? '' : ' disabled'}>Start Claude</button></form></div>`;
     const form = sheet.querySelector('form');
+    // Who already works in the chosen project: a second session is allowed.
+    const note = () => {
+      const chosen = projects.find(project => project.key === form.project.value);
+      sheet.querySelector('[data-new-session-note]').textContent = chosen ? chosen.note : '';
+    };
+    form.project.addEventListener('change', note);
+    note();
     form.addEventListener('submit', submit);
     sheet.querySelector('[data-new-session-close]').addEventListener('click', close);
   }
@@ -41,8 +49,8 @@
     const button = form.querySelector('button[type=submit]');
     button.disabled = true;
     try {
-      const result = await CC.post('/api/new-session', {project: form.project.value, prompt: form.prompt.value});
-      render({projects: [], default_model: ''}, `Started ${result.session}.`);
+      const result = await CC.post('/api/newsession', {project: form.project.value, message: form.message.value});
+      render({projects: [], default_model: ''}, `Started ${result.tmux}.`);
     } catch (error) {
       button.disabled = false;
       form.querySelector('.new-session-result').textContent = `Not started: ${error.message}`;
@@ -56,7 +64,7 @@
     document.body.appendChild(sheet);
     sheet.addEventListener('click', event => { if (event.target === sheet) close(); });
     try {
-      render(await CC.get('/api/new-session/projects'), '');
+      render(await CC.get('/api/newsession/projects'), '');
       sheet.querySelector('select:not([disabled])')?.focus();
     } catch (error) {
       render({projects: [], default_model: ''}, `Projects are unavailable: ${error.message}`);

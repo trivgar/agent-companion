@@ -117,8 +117,17 @@ app_name = "Companion"
 # [projects]
 # api = "~/work/api"
 # site = "~/work/site"
+# Or as rows, which may also give New session a key (what the page sends),
+# a label and a tmux session prefix; each defaults to the name:
+# [[projects]]
+# name = "site"
+# path = "~/work/site"
+# label = "Web site"
+# prefix = "claude-site"
 
-# New session: the model a new Claude starts with (leave out for the default).
+# New session: the model a new Claude starts with (leave out for the default),
+# and words every start passes to claude, such as a permission mode.
 # (An older [new_session] projects = [...] list is still read.)
 # [new_session]
 # default_model = "sonnet"
+# claude_args = ["--permission-mode", "acceptEdits"]
