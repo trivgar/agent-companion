@@ -13,6 +13,24 @@ What moved, and whether your settings need anything. Newest first.
   under the old name: move them (`mv ~/.config/claude-companion
   ~/.config/agent-companion`, the same for `~/.local/share`, and rename the
   token file inside) or symlink the old name to the new.
+- The clear line's routes (`GET` and `POST /api/clearline`) have a router of
+  their own, `agent_companion.server.clearline`, so a host can mount them
+  without the sessions view. Same addresses. They are served whether or not
+  the sessions view is on, so the settings page, which reads the line, no
+  longer comes up blank without it. Both now say
+  `Cache-Control: no-store`, and a save the disk refuses answers 500 with the
+  line still in force and the reason.
+- New optional setting `clear_over_file`: where the clear line writes who is
+  past it, for a prompt hook to read. The default is unchanged
+  (`needs-clear.json` in `data_dir`).
+- The clear line's push waits while the `asleep` you give its Watcher says you
+  sleep, and taps through to the session (`/?agent=<speaker>`).
+- `agent_companion.server.walk.all_routes(app)`: every route an app serves, on
+  any FastAPI version, for a host that classes routes itself.
+- The test suite runs in a temporary home, so no default path in it is yours.
+  It still finds the browsers Playwright installed and the leak check's deny
+  list; `AGENT_COMPANION_LEAK_TERMS` now reaches the leak check instead of
+  being cleared with the other settings.
 
 ## 2026-10-29
 - Comms now uses the full `/api/tts/*` coordinator API and the voice lab has
