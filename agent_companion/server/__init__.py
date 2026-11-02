@@ -22,11 +22,13 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import clearline, config, jobreaper, restart
+from .. import config, jobreaper, restart
+from ..clearline import Watcher as ClearLineWatcher  # by name: .clearline is the router
 from ..webpush import PushStore
 from . import auth, restore, sessions
 from . import auth, newsession, sessions
 from . import livecall
+from . import clearline
 from .features import FEATURES
 from .gzip import GzipTextMiddleware
 
@@ -100,6 +102,7 @@ def create_app(token: str | None = None, owner_key: str | None = None) -> FastAP
     app.state.restart_check = restart.Check()
     app.include_router(restore.router)
     app.include_router(newsession.router)
+    app.include_router(clearline.router)
 
     @app.middleware("http")
     async def host_check(request: Request, call_next):
@@ -129,7 +132,7 @@ def create_app(token: str | None = None, owner_key: str | None = None) -> FastAP
         if start and "pytest" not in sys.modules:
             start(app)
     if "pytest" not in sys.modules:
-        clearline.Watcher(_clear_rows, _send_clear_push).start()
+        ClearLineWatcher(_clear_rows, _send_clear_push).start()
         jobreaper.start(sessions.data_dir())
 
     @app.get("/api/features")

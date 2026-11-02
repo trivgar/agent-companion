@@ -158,3 +158,27 @@ def test_routes_protect_the_line_and_add_session_flags(tmp_path, monkeypatch):
     assert client.post("/api/clearline", json={"tokens": 600_000}, headers=WRITE).json() == {"tokens": 600_000}
     rows = {row["session_id"]: row for row in client.get("/api/sessions", headers=KEY).json()}
     assert rows["over"]["clear_line"] == 600_000 and rows["over"]["needs_clear"] is False
+
+
+def test_the_line_has_a_router_of_its_own_without_the_sessions_view():
+    from agent_companion.server import clearline as routes
+    assert {(m, r.path) for r in routes.router.routes for m in r.methods} == {
+        ("GET", "/api/clearline"), ("POST", "/api/clearline")}
+    assert not [r for r in sessions.router.routes if r.path == "/api/clearline"]
+
+
+def test_the_line_is_never_cached_and_a_failed_save_says_so(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("AGENT_COMPANION_CLEARLINE", str(tmp_path / "line.json"))
+    client = TestClient(server.create_app(token=TOKEN, owner_key=OWNER))
+    got = client.get("/api/clearline", headers=KEY)
+    assert got.json() == {"tokens": 400_000} and got.headers["cache-control"] == "no-store"
+    saved = client.post("/api/clearline", json={"tokens": 600_000}, headers=WRITE)
+    assert saved.json() == {"tokens": 600_000} and saved.headers["cache-control"] == "no-store"
+
+    def full(tokens):
+        raise OSError("disk full")
+    monkeypatch.setattr(clearline, "put", full)
+    failed = client.post("/api/clearline", json={"tokens": 700_000}, headers=WRITE)
+    assert failed.status_code == 500
+    assert failed.json() == {"tokens": 600_000, "detail": "could not save it: disk full"}
