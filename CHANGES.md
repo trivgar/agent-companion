@@ -3,6 +3,34 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## 2026-11-02
+- Comms controls follow the coordinator's own files. Levels are read from and
+  written to `volume.conf` in the coordinator directory, one key in place, so
+  its comments and every other key stay: `voice_gain` in dB (-20 to 14),
+  `music_volume` (0 to 1), either one per speaker as `<key>.<Name>`. They
+  used to go to a `levels.conf` that nothing read. A preset is stored as
+  `effects.<Name>` in the same file, where the coordinator reads it; the
+  `effects.override.tsv` it went to before was read by nothing, so a speaker
+  with an `effects.<Name>` row lost the change on its next clip.
+- `GET /api/tts` has the shape the Sound page reads: `speakers`, `tracks`,
+  `presets`, `voices`, `music_enabled`, `stop_available`, `quiet` (the
+  announcements, mutes, levels, subtitles and whether the coordinator reads
+  them, the hold with `waiting` and, while held, `reason` and `since`, what
+  waits, and whether the roundup is ready) and `health` (whether clips are
+  reaching the player), with `held` and `app` as before. The flat `ok`,
+  `setup`, `subtitles`, `announcements`, `mute`, `levels` and `hold` are gone.
+- `POST /api/tts/release` runs `quiet.sh resume`, which speaks what waited,
+  and answers once the hold is gone: `released`, `detail` and the hold. The
+  test clip runs `quiet.sh test` (`spoken`, `detail`), and stop frees the
+  queue whatever the player did (`stopped`, `queue_cleared`, `detail`).
+- `GET /api/tts/transcript` lists every clip line (spoke, muted, held,
+  failed), each with its `body` without the generated opener, and offers
+  `seq` for a replay only on a spoken one. A failed delivery no longer reads
+  as spoken.
+- A live call holds the clips of the sessions it talks to while a
+  coordinator is set up, and lets each go when the call does
+  (`quiet.sh callrelease`).
+- New add-on hook `tts_fix(kind)`: your repair steps for a failed delivery
+  ("undelivered" or "silent"), shown with it.
 - A background job's label is 60 characters, with an ellipsis where it was
   cut (it was 96), and its redaction is narrower: a path's folders, and words
   like `Users`, `session` or `design`, no longer cut it, and `-u`, `-p` and

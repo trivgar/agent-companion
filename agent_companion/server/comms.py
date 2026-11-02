@@ -444,10 +444,14 @@ def tts_transcript(limit: int = 40) -> dict:
     tts, root = _tts(), outbox_dir()
     clips = agentvibes.transcript(tts, min(max(limit, 1), 200))
     index = ttsoutbox.index(root)
+    # A spoken line the outbox still holds can be played again; only spoken
+    # ones, so a muted or failed clip never offers a replay.
     for clip_item in clips:
-        seq = ttsoutbox.seq_for(clip_item.get("name"), clip_item.get("text"), clip_item.get("at"), index)
-        if seq is not None:
-            clip_item["seq"] = seq
+        if clip_item.get("state") == "spoke":
+            seq = ttsoutbox.seq_for(clip_item.get("name"), clip_item.get("body") or clip_item.get("text"),
+                                    clip_item.get("at"), index)
+            if seq is not None:
+                clip_item["seq"] = seq
     return {"clips": clips}
 
 
