@@ -79,6 +79,18 @@ def test_the_first_message_is_optional_one_line_and_capped():
     assert ns.clean_message(42) == ("", "the first message must be text")
 
 
+def test_control_characters_never_act_on_the_typed_line():
+    """The message is typed into a shell, where a ^C would drop the line and
+    run what follows as a command of its own, and ^O or ESC would act on it.
+    Every control character lands as a space; an emoji's joiners are kept."""
+    words, why = ns.clean_message("hi\x03rm -rf ~/work #\x0f\x1b[A\x7fdone\x85")
+    assert why == "" and words == "hi rm -rf ~/work # [A done"
+    line = ns.command("claude-site", words)
+    assert not any(ord(c) < 32 or 127 <= ord(c) < 160 for c in line), line
+    assert ns.clean_message("ship it \U0001F468‍\U0001F469‍\U0001F467")[0] == \
+        "ship it \U0001F468‍\U0001F469‍\U0001F467"
+
+
 def test_a_message_that_looks_like_a_flag_is_not_one():
     words, why = ns.clean_message("--model haiku")
     assert why == "" and not words.startswith("-") and words.strip() == "--model haiku"

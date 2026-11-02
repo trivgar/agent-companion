@@ -39,6 +39,7 @@ PROC = Path("/proc")
 # The process names a started Claude Code runs as: an npm install shows as node.
 NAMES = {"claude", "node"}
 _TMUX_UNSAFE = re.compile(r"[^A-Za-z0-9_-]+")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")   # C0, DEL and C1
 
 
 def _table() -> dict:
@@ -95,16 +96,18 @@ def project(key, configured: tuple[dict, ...] | None = None) -> dict | None:
 def clean_message(raw) -> tuple[str, str]:
     """(the first message as one line, an error in words or ""). Absent is
     fine. Over MAX_MESSAGE is measured on what was sent. Newlines become
-    spaces, as a chat send does: the command is one typed line. A message
-    starting with "-" gets a leading space so claude never reads it as one of
-    its own flags."""
+    spaces, as a chat send does: the command is one typed line. So does every
+    other control character, which typed into a shell acts on the line instead
+    of landing in it (a ^C drops it, and what follows runs as its own command).
+    A message starting with "-" gets a leading space so claude never reads it
+    as one of its own flags."""
     if raw is None:
         return "", ""
     if not isinstance(raw, str):
         return "", "the first message must be text"
     if len(raw) > MAX_MESSAGE:
         return "", "the first message is over 4,000 characters"
-    words = " ".join(raw.split())
+    words = " ".join(_CONTROL.sub(" ", raw).split())
     if words.startswith("-"):
         words = " " + words
     return words, ""

@@ -16,7 +16,8 @@ What moved, and whether your settings need anything. Newest first.
   exits. It is named after its tmux session (`--name`), and a start counts
   once a Claude process (`claude`, or `node` for an npm install) is seen in
   that folder on that pane, within 12 s. The first message is one line of at
-  most 4,000 characters. Each attempt goes in the chat log with the
+  most 4,000 characters, its control characters turned to spaces so none can
+  act on the typed line. Each attempt goes in the chat log with the
   message's length, never its words.
 - Comms controls follow the coordinator's own files. Levels are read from and
   written to `volume.conf` in the coordinator directory, one key in place, so
