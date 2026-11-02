@@ -92,6 +92,14 @@ app_name = "Companion"
 # [approval_lines]
 # Alex = ["{you}, need your OK"]
 
+# How the pages name a voice host from remote-hosts.conf where its bare name
+# reads wrong: a host on this server's own machine, say, whose bare name could
+# read as the dashboard itself being down. One table per host.
+# [voice_host_names.local]
+# subject = "the voice host on this PC"
+# possessive = "this PC's"
+# place = "this PC"
+
 # Extra design documents for the Specs tab. These globs are relative to each
 # project root. A path containing "plan" is shown as a plan; other matches are specs.
 # spec_globs = ["docs/design/*.md"]
