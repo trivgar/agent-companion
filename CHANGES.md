@@ -2,6 +2,23 @@
 
 What moved, and whether your settings need anything. Newest first.
 
+## 2026-11-02
+- A background job's label is 60 characters, with an ellipsis where it was
+  cut (it was 96), and its redaction is narrower: a path's folders, and words
+  like `Users`, `session` or `design`, no longer cut it, and `-u`, `-p` and
+  `--user` cut by the value they carry (`curl -u a:b`, `mysql -ppw`), not on
+  sight (`ps -u me`, `mkdir -p`, `systemctl --user`). Every credential the
+  old rule hid is still hidden.
+- The job reaper can also stop a job under a live session once it is
+  `job_reaper_max_hours` old (new, off by default), never stops a command
+  matching `job_reaper_keep` (new: a regular expression, any case; one that
+  cannot compile stops the reaper), and says why it stopped each job, in
+  `job-reaper.jsonl` too. It now waits 10 s, not 1 s, between SIGTERM and
+  SIGKILL, and then forces whatever of the job is still running even when
+  its shell has gone. `python3 -m agent_companion.jobreaper` runs one pass
+  from a timer of your own; `--dry-run` lists what it would stop and
+  signals nothing.
+
 ## 2026-11-01
 - `/api/usage`'s `codex` reading takes the shape both pages read: the plan's
   long window at the top level (`utilization`, `resets_at` as an ISO time,
