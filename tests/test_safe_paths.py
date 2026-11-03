@@ -5,7 +5,8 @@ import pytest
 from fastapi import HTTPException
 
 from agent_companion import auditions, safe_paths
-from agent_companion.server import comms, voicelab
+from agent_companion import voicelab
+from agent_companion.server import comms, voicelab as voicelab_routes
 
 
 def test_files_and_directories_refuse_escapes_and_symlinks(tmp_path):
@@ -78,7 +79,7 @@ def test_file_routes_reject_linked_files_without_starting_a_server(tmp_path, mon
         lambda: comms.tts_track("linked.mp3"),
         comms.tts_bed,
         lambda: comms.voice_audition_clip("Trial", "linked.mp3"),
-        lambda: voicelab.get_clip("build", "new-1.mp3"),
+        lambda: voicelab_routes.get_clip("build", "new-1.mp3"),
     ):
         with pytest.raises(HTTPException) as error:
             call()

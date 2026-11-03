@@ -1232,3 +1232,363 @@ def test_the_pipeline_folder_is_a_setting(tmp_path, monkeypatch):
     monkeypatch.delenv("AGENT_COMPANION_VOICES_DIR")
     _settings(tmp_path, monkeypatch, "")
     assert vl.voices_dir() == Path.home() / ".local/share/agent-companion/voices"
+
+
+# --- the routes ---------------------------------------------------------------------------
+
+@pytest.fixture
+def client(tts, tmp_path, monkeypatch):
+    """The voice lab's routes on an app, with the coordinator and the lab named by the environment."""
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from agent_companion import server
+    monkeypatch.setenv("AGENT_COMPANION_TTS_DIR", str(tts))
+    monkeypatch.setenv("AGENT_COMPANION_VOICELAB_DIR", str(tmp_path / "lab"))
+    monkeypatch.setattr(server, "FEATURES", ["voicelab"])
+    return TestClient(server.create_app(token=TOKEN, owner_key=OWNER))
+
+
+def test_the_route_answers_the_four_sections(client, tts, tmp_path, monkeypatch):
+    _build(tmp_path / "lab", "kit", "Kit", STAGES[:7], at=time.time() - 60, log="10:47:01 == kit: train\n")
+    seen = []
+    monkeypatch.setattr(voices, "state", lambda t, now=None: seen.append(t) or
+                        {"real": False, "why": "gpu1 is busy", "note": ""})
+    assert client.get("/api/voicelab").status_code == 401
+    r = client.get("/api/voicelab", headers=KEY)
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    body = r.json()
+    assert seen == [tts]
+    assert body["now"] == {"kind": "busy", "text": "gpu1 is busy"}
+    assert [b["name"] for b in body["running"]["builds"]] == ["Kit"]
+    assert {v["name"] for v in body["voices"]["voices"]} == {"Ada", "Lin", "Kit", "Max", "Dot"}
+    assert set(body) == {"now", "needs", "running", "voices", "other"}
+
+
+def test_without_a_cast_the_route_never_asks_the_voice_host(client, tts, tmp_path, monkeypatch):
+    (tts / "remote-voices.conf").unlink()
+    monkeypatch.setattr(voices, "state", lambda *a, **k: pytest.fail("asked for the voice host's state"))
+    body = client.get("/api/voicelab", headers=KEY).json()
+    assert body["now"]["kind"] == "unknown"
+    assert body["voices"] == {"ok": False, "voices": [], "why": "could not read tts/remote-voices.conf"}
+    assert body["running"] == {"ok": False, "builds": [], "why": f"could not read {tmp_path / 'lab'}"}
+
+
+def test_a_voice_state_that_raises_is_not_known(client, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("host unreachable")
+    monkeypatch.setattr(voices, "state", boom)
+    r = client.get("/api/voicelab", headers=KEY)
+    assert r.status_code == 200 and r.json()["now"]["kind"] == "unknown"
+
+
+def test_the_routes_right_now_line_is_what_the_voice_hosts_say(client, tts, monkeypatch):
+    """voices.state() for real, with a stand-in for the host's /health: its reason is the line."""
+    (tts / "remote-hosts.conf").write_text("gpu1=http://gpu1.invalid\n")
+    real, report = voices.state, {}
+    monkeypatch.setattr(voices, "state", lambda t, now=None: real(t, now, health=lambda url: report))
+
+    def now():
+        voices._cache.clear()
+        return client.get("/api/voicelab", headers=KEY).json()["now"]
+    report.update({"state": "ready", "why": ""})
+    assert now() == {"kind": "free", "text": "free"}
+    report.update({"state": "stood_down", "why": "gpu1 is in use"})
+    assert now() == {"kind": "busy", "text": "gpu1 is in use"}
+
+
+def test_the_add_on_gives_the_routes_right_now_line_and_a_voices_notes(client, tts, tmp_path, monkeypatch):
+    _build(tmp_path / "lab", "lin", "Lin", STAGES[:7], at=time.time() - 60)
+    _plug(monkeypatch,
+          voicelab_now=lambda state, builds, now: {"kind": "training", "text": f"training {builds[0]['name']}",
+                                                   "build": builds[0]["dir"]},
+          voicelab_notes=lambda names: [{"text": f"note for {names[0]}", "at": None}])
+    body = client.get("/api/voicelab", headers=KEY).json()
+    assert body["now"] == {"kind": "training", "text": "training Lin", "build": "lin"}
+    notes = {v["name"]: v["notes"] for v in body["voices"]["voices"]}
+    assert notes["Kit"] == [{"text": "note for Kit", "at": None}]
+
+
+def test_the_router_keeps_the_names_a_host_read_from_it_for_one_release():
+    from agent_companion.server import voicelab as routes
+    for name in ("CLIP", "cast_name", "decide", "decision_of", "is_build_dir", "lab_root"):
+        assert getattr(routes, name) is getattr(vl, name), name
+
+
+def test_the_route_is_read_only(client):
+    assert client.post("/api/voicelab", json={}, headers=WRITE).status_code == 405
+
+
+def _tier(c, name, body, headers=WRITE):
+    return c.post(f"/api/voicelab/tier/{name}", json=body, headers=headers)
+
+
+def _test(c, name, body, headers=WRITE):
+    return c.post(f"/api/voicelab/test/{name}", json=body, headers=headers)
+
+
+def _decide(c, d, body, headers=WRITE):
+    return c.post(f"/api/voicelab/decide/{d}", json=body, headers=headers)
+
+
+def test_the_clip_route(client, tmp_path):
+    lab = tmp_path / "lab"
+    b = _build(lab, "kit", "Kit", STAGES[:7])
+    _aud(b)
+    (lab / "bare").mkdir()
+    _aud(lab / "bare")                                  # no voice.json
+    assert client.get("/api/voicelab/clip/kit/new-1.mp3").status_code == 401
+    r = client.get("/api/voicelab/clip/kit/new-1.mp3", headers=KEY)
+    assert r.status_code == 200 and r.content == b"ID3x"
+    assert r.headers["content-type"] == "audio/mpeg" and r.headers["cache-control"] == "no-store"
+    for url in ("/api/voicelab/clip/kit/new-3.mp3",            # missing file
+                "/api/voicelab/clip/kit/new-1.wav", "/api/voicelab/clip/kit/result.json",
+                "/api/voicelab/clip/kit/..%2Fvoice.json", "/api/voicelab/clip/kit/new-123.mp3",
+                "/api/voicelab/clip/bare/new-1.mp3",             # no voice.json
+                "/api/voicelab/clip/..%2Fkit/new-1.mp3", "/api/voicelab/clip/nowhere/new-1.mp3",
+                "/api/voicelab/clip/../new-1.mp3"):
+        assert client.get(url, headers=KEY).status_code == 404, url
+
+
+def test_a_clip_that_is_a_directory_is_404(client, tmp_path):
+    lab = tmp_path / "lab"
+    b = _build(lab, "kit", "Kit", STAGES[:7])
+    (b / "audition" / "new-1.mp3").mkdir(parents=True)
+    assert client.get("/api/voicelab/clip/kit/new-1.mp3", headers=KEY).status_code == 404
+
+
+def test_dot_dirs_are_not_builds(client, tmp_path):
+    """DIR allows dots, so ".." fullmatches it: the lab's parent must not be served as a build."""
+    (tmp_path / "lab").mkdir()
+    (tmp_path / "voice.json").write_text("{}")
+    _aud(tmp_path)
+    for d in ("..", "%2E%2E", "."):
+        assert client.get(f"/api/voicelab/clip/{d}/new-1.mp3", headers=KEY).status_code == 404, d
+    assert not vl.is_build_dir("..") and not vl.is_build_dir(".") and vl.is_build_dir("kit")
+
+
+def test_the_tier_route_writes_tiers_conf_for_a_cast_voice(client, tts):
+    r = _tier(client, "kit", {"tier": 1})
+    assert r.status_code == 200 and r.json() == {"ok": True} and r.headers["cache-control"] == "no-store"
+    assert (tts / "tiers.conf").read_text().splitlines() == ["lin=1", "bogus=7", "kit=1"]
+    assert not (tts / "auditions").exists(), "a tier button is not an audition decision"
+
+
+def test_the_tier_route_guards(client, tts):
+    before = (tts / "tiers.conf").read_text()
+    assert _tier(client, "Lin", {"tier": 2}, headers=SAME).status_code == 401
+    assert _tier(client, "Lin", {"tier": 2}, headers={"x-agent-companion-key": "wrong", **SAME}).status_code == 401
+    assert _tier(client, "Lin", {"tier": 2}, headers=KEY).status_code == 403, "no Origin"
+    assert _tier(client, "Lin", {"tier": 2}, headers={**KEY, "origin": "http://evil.example"}).status_code == 403
+    assert client.post("/api/voicelab/tier/Lin", content=b'{"tier": 2}',
+                       headers={**WRITE, "content-type": "text/plain"}).status_code == 415
+    for bad in ({"tier": 4}, {"tier": 0}, {"tier": "no"}, {"tier": "2"}, {"tier": True}, {}):
+        assert _tier(client, "Lin", bad).status_code == 400, bad
+    assert _tier(client, "bad name!", {"tier": 2}).status_code == 400
+    assert _tier(client, "Nobody", {"tier": 2}).status_code == 404
+    assert (tts / "tiers.conf").read_text() == before
+
+
+def test_the_test_route_returns_the_wav_and_who_rendered_it(client, tts, monkeypatch):
+    seen = []
+
+    def fake(t, name, text, run=None):
+        seen.append((t, name, text))
+        return b"RIFFwav", "gpu1"
+    monkeypatch.setattr(vl, "test_line", fake)
+    r = _test(client, "lin", {"text": "  Hello  "})
+    assert r.status_code == 200 and r.content == b"RIFFwav"
+    assert r.headers["content-type"] == "audio/wav" and r.headers["cache-control"] == "no-store"
+    assert r.headers["x-rendered-by"] == "gpu1"
+    assert seen == [(tts, "Lin", "Hello")], "the cast's own spelling of the name"
+    assert _test(client, "Lin", {}).status_code == 200 and seen[-1][2] == vl.TEST_STOCK
+    assert not vl._test_lock.locked(), "the lock is let go"
+
+
+def test_the_test_route_guards(client, monkeypatch):
+    monkeypatch.setattr(vl, "test_line", lambda *a, **k: pytest.fail("rendered"))
+    assert _test(client, "Lin", {"text": "x"}, headers=SAME).status_code == 401
+    assert _test(client, "Lin", {"text": "x"}, headers=KEY).status_code == 403, "no Origin"
+    assert _test(client, "Lin", {"text": "x"}, headers={**KEY, "origin": "http://evil.example"}).status_code == 403
+    assert _test(client, "Lin", {"text": "x" * 201}).status_code == 400
+    assert _test(client, "Lin", {"text": 5}).status_code == 400
+    assert _test(client, "bad name!", {"text": "x"}).status_code == 400
+    assert _test(client, "Nobody", {"text": "x"}).status_code == 404
+
+
+def test_the_test_route_is_one_at_a_time(client, monkeypatch):
+    monkeypatch.setattr(vl, "test_line", lambda *a, **k: pytest.fail("rendered"))
+    assert vl._test_lock.acquire(blocking=False)
+    try:
+        r = _test(client, "Lin", {"text": "x"})
+    finally:
+        vl._test_lock.release()
+    assert r.status_code == 409 and r.json()["detail"] == "another test line is rendering"
+
+
+def test_a_failed_render_is_a_502_in_words_and_frees_the_lock(client, monkeypatch):
+    def boom(*a, **k):
+        raise vl.TestLineError("speak.sh made no sound")
+    monkeypatch.setattr(vl, "test_line", boom)
+    r = _test(client, "Lin", {"text": "x"})
+    assert r.status_code == 502 and r.json()["detail"] == "speak.sh made no sound"
+    assert not vl._test_lock.locked()
+
+
+def test_who_rendered_it_survives_words_a_header_cannot_carry(client, monkeypatch):
+    """A fallback's reason is speak.log's own words, and a header carries latin-1 only."""
+    monkeypatch.setattr(vl, "test_line", lambda *a, **k: (b"RIFFwav", "Piper (fallback: gpu1 \u2192 busy)"))
+    r = _test(client, "Lin", {"text": "x"})
+    assert r.status_code == 200 and r.content == b"RIFFwav"
+    assert r.headers["x-rendered-by"] == "Piper (fallback: gpu1 ? busy)"
+    assert not vl._test_lock.locked()
+
+
+def test_the_decide_route(client, tmp_path):
+    lab = tmp_path / "lab"
+    _build(lab, "kit", "Kit", STAGES, scores=RANK)
+    r = _decide(client, "kit", {"want": True})
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    assert r.json() == {"ok": True, "filed": False, "detail": ""}, "with no add-on nothing is filed"
+    assert json.loads((lab / "kit" / "decision.json").read_text())["want"] is True
+    r = _decide(client, "kit", {"want": True})
+    assert r.json() == {"ok": True, "filed": False, "detail": "already filed"}
+    r = _decide(client, "kit", {"want": False})
+    assert r.json() == {"ok": True, "filed": False, "detail": ""}
+    assert json.loads((lab / "kit" / "decision.json").read_text())["want"] is False
+
+
+def test_the_decide_route_guards(client, tmp_path):
+    lab = tmp_path / "lab"
+    _build(lab, "kit", "Kit", STAGES, scores=RANK)
+    (lab / "bare").mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "voice.json").write_text("{}")
+    (lab / "linked").symlink_to(outside, target_is_directory=True)
+    assert _decide(client, "kit", {"want": True}, headers=SAME).status_code == 401
+    assert _decide(client, "kit", {"want": True}, headers=KEY).status_code == 403, "no Origin"
+    bad = {**KEY, "origin": "https://evil.example"}
+    assert _decide(client, "kit", {"want": True}, headers=bad).status_code == 403
+    assert _decide(client, "nope", {"want": True}).status_code == 404
+    assert _decide(client, "bare", {"want": True}).status_code == 404, "no voice.json"
+    assert _decide(client, "linked", {"want": True}).status_code == 404, "a link out of the lab"
+    # the client folds ".." out of the path (405, no route), so also try names the route sees
+    assert _decide(client, "..", {"want": True}).status_code in (404, 400, 405)
+    assert _decide(client, ".hidden", {"want": True}).status_code in (404, 400)
+    assert _decide(client, "kit", {"want": "yes"}).status_code == 400
+    assert _decide(client, "kit", {}).status_code == 400
+    assert not (lab / "kit" / "decision.json").exists() and not (outside / "decision.json").exists()
+
+
+def test_a_newly_wanted_build_goes_to_the_add_on_after_it_is_saved(client, tmp_path, monkeypatch):
+    lab = tmp_path / "lab"
+    _build(lab, "kit", "Kit", STAGES, scores=RANK)
+    seen = []
+
+    def decided(name, directory, path, want):
+        seen.append((name, directory, path, want, vl.decision_of(path)["want"]))
+        return {"filed": True, "detail": "filed #12"}
+    _plug(monkeypatch, voicelab_decided=decided)
+    r = _decide(client, "kit", {"want": True})
+    assert r.status_code == 200 and r.json() == {"ok": True, "filed": True, "detail": "filed #12"}
+    assert seen == [("Kit", "kit", lab / "kit", True, True)], "the cast's name for it; saved before it is told"
+    r = _decide(client, "kit", {"want": True})
+    assert r.json() == {"ok": True, "filed": False, "detail": "already filed"} and len(seen) == 1
+    r = _decide(client, "kit", {"want": False})
+    assert r.json() == {"ok": True, "filed": False, "detail": ""} and len(seen) == 1, "Not this one files nothing"
+    assert json.loads((lab / "kit" / "decision.json").read_text())["want"] is False
+    r = _decide(client, "kit", {"want": True})
+    assert r.json()["filed"] is True and len(seen) == 2, "wanted again after Not this one is newly wanted"
+
+
+def test_an_add_on_that_files_nothing_or_fails_still_has_the_decision_saved(client, tmp_path, monkeypatch):
+    lab = tmp_path / "lab"
+    _build(lab, "kit", "Kit", STAGES, scores=RANK)
+    _build(lab, "lin", "Lin", STAGES, scores=RANK)
+    _build(lab, "dot", "Dot", STAGES, scores=RANK)
+    _plug(monkeypatch, voicelab_decided=lambda *a: {"filed": False, "detail": "x"})
+    r = _decide(client, "kit", {"want": True})
+    assert r.status_code == 200 and r.json() == {"ok": True, "filed": False, "detail": "x"}
+    assert json.loads((lab / "kit" / "decision.json").read_text())["want"] is True, "saved all the same"
+
+    def boom(*a):
+        raise RuntimeError("broken")
+    _plug(monkeypatch, voicelab_decided=boom)
+    r = _decide(client, "lin", {"want": True})
+    assert r.status_code == 200 and r.json() == {"ok": True, "filed": False, "detail": "not filed"}
+    assert json.loads((lab / "lin" / "decision.json").read_text())["want"] is True
+    _plug(monkeypatch, voicelab_decided=lambda *a: "filed")
+    r = _decide(client, "dot", {"want": True})
+    assert r.json() == {"ok": True, "filed": False, "detail": ""}, "an answer that is not one"
+
+
+def test_a_wanted_build_with_no_cast_voice_is_named_by_its_folder(client, tts, tmp_path, monkeypatch):
+    lab = tmp_path / "lab"
+    _build(lab, "comms-index-test", "Test", STAGES, scores=RANK)
+    _build(lab, "kit-2", "Kit", STAGES, scores=RANK)
+    names = []
+    _plug(monkeypatch, voicelab_decided=lambda name, *a: names.append(name) or {"filed": True, "detail": ""})
+    _decide(client, "comms-index-test", {"want": True})
+    _decide(client, "kit-2", {"want": True})
+    assert names == ["comms-index-test", "Kit"], "the folder when no voice owns it; else the cast's name"
+    (tts / "remote-voices.conf").unlink()
+    _build(lab, "lin", "Lin", STAGES, scores=RANK)
+    _decide(client, "lin", {"want": True})
+    assert names[-1] == "lin", "no cast to read"
+
+    def boom(*a, **k):
+        raise RuntimeError("cast unreadable")
+    monkeypatch.setattr(vl, "cast", boom)
+    _build(lab, "max", "Max", STAGES, scores=RANK)
+    r = _decide(client, "max", {"want": True})
+    assert r.status_code == 200 and names[-1] == "max", "a cast read that fails only costs the name"
+
+
+def test_the_decide_route_says_when_a_decision_cannot_be_saved(client, tmp_path, monkeypatch):
+    lab = tmp_path / "lab"
+    _build(lab, "kit", "Kit", STAGES, scores=RANK)
+
+    def full(*a, **k):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(vl, "decide", full)
+    r = _decide(client, "kit", {"want": True})
+    assert r.status_code == 500 and r.json()["detail"] == "could not save: No space left on device"
+
+    def refused(*a, **k):
+        raise ValueError("not a build")
+    monkeypatch.setattr(vl, "decide", refused)
+    assert _decide(client, "kit", {"want": True}).status_code == 404, "a name the library refuses is no build"
+
+
+def test_the_tier_route_says_when_a_tier_cannot_be_saved(client, monkeypatch):
+    def full(*a, **k):
+        raise OSError(30, "Read-only file system")
+    monkeypatch.setattr(auditions, "set_tier", full)
+    r = _tier(client, "kit", {"tier": 2})
+    assert r.status_code == 500 and r.json()["detail"] == "could not save: Read-only file system"
+
+
+def test_each_write_route_checks_the_origin_itself(client, tts, tmp_path):
+    """A host app may stand its own write check in for require_write; the routes still refuse a
+    request that does not come from this page."""
+    from agent_companion.server import auth
+    client.app.dependency_overrides[auth.require_write] = lambda: None
+    _build(tmp_path / "lab", "ada", "Ada", STAGES)
+    for url, body in (("/api/voicelab/tier/ada", {"tier": 2}), ("/api/voicelab/decide/ada", {"want": True}),
+                      ("/api/voicelab/test/ada", {"text": "hi"})):
+        for headers in ({}, {"origin": "http://evil.example"}, {"origin": "http://testserver/elsewhere"}):
+            r = client.post(url, json=body, headers=headers)
+            assert r.status_code == 403 and r.json() == {"detail": "writes come from this page only"}, (url, headers)
+    assert not (tts / "tiers.conf").read_text().count("ada="), "nothing was written"
+    assert not (tmp_path / "lab" / "ada" / "decision.json").exists()
+    assert client.post("/api/voicelab/tier/ada", json={"tier": 2}, headers=SAME).status_code == 200, \
+        "from this page it is let through"
+
+
+def test_the_write_routes_say_comms_is_not_set_up(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_TTS_DIR", str(tmp_path / "no-coordinator"))
+    for r in (_tier(client, "kit", {"tier": 1}), _decide(client, "kit", {"want": True}),
+              _test(client, "kit", {"text": "x"})):
+        assert r.status_code == 503
+        assert r.json() == {"detail": "comms is not set up: set tts_dir to the coordinator directory"}
