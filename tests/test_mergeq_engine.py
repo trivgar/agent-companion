@@ -196,6 +196,16 @@ def test_a_failed_restart_is_loud(world):
     assert any("restart FAILED" in n for n in world.calls["notify"])
 
 
+def test_a_host_with_no_service_is_not_told_it_restarted(world):
+    """restart() answers None when the app has no service of its own: nothing
+    restarted, and nothing failed either, so no restart notice."""
+    world.branch("a", {"a.txt": "a"})
+    world.merger.restart = lambda: None
+    r = world.merger.run()
+    assert r["result"] == "green" and r["restarted"] is None and "restart_error" not in r
+    assert not any("restart" in n for n in world.calls["notify"])
+
+
 def test_pushed_commits_are_counted_before_the_push(world, tmp_path):
     origin = tmp_path / "origin.git"
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
