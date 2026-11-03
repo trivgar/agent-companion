@@ -3,6 +3,7 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## 2026-11-03
+- Released as 0.2.0: everything from here down to 0.1.0 (2026-11-01).
 - Connections: a first row for the settings file. A file that is not valid
   TOML (a key written twice, say) reads as every setting at its default; the
   row now says so, with the reason, where only the server's start did before.
