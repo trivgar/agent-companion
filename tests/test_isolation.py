@@ -16,8 +16,10 @@ def test_the_suite_has_a_home_of_its_own():
 
 def test_default_paths_land_in_that_home():
     pytest.importorskip("fastapi")
+    from agent_companion import webpush
     from agent_companion.server import sessions
     assert str(sessions.data_dir()).startswith(str(Path.home()))
+    assert str(webpush.push_dir()).startswith(str(Path.home()))
     assert str(sessions.claude_home()).startswith(str(Path.home()))
 
 

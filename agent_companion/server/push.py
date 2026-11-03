@@ -3,16 +3,19 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ..webpush import PushStore
+from ..webpush import PushStore, push_dir
 from . import auth
-from .sessions import data_dir
 
 TITLE = "Push"
 router = APIRouter()
+# A host app with a store of its own (one that delivers somewhere first, or keeps
+# a feed of what it sent) sets it here, so these routes and every push the core
+# sends use that one store. None: a PushStore in push_dir.
+_store = None
 
 
 def store() -> PushStore:
-    return PushStore(data_dir())
+    return _store if _store is not None else PushStore(push_dir())
 
 
 @router.get("/api/push/key", dependencies=[Depends(auth.require_token)])
@@ -21,7 +24,7 @@ def key():
     return {"key": s.public_key(), "devices": s.devices()}
 
 
-@router.post("/api/push/subscribe", dependencies=[Depends(auth.require_write)])
+@router.post("/api/push/subscribe", dependencies=[Depends(auth.require_subscribe)])
 async def subscribe(request: Request):
     try:
         sub = await request.json()

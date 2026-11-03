@@ -18,9 +18,9 @@ covering the blind spot of the other. That split matters: a notifier that cannot
 report its own failure is how this morning's outage stayed invisible for
 seventeen minutes.
 
-Keys and subscriptions live beside the other caches in ~/.claude. A subscription
-that answers 404 or 410 is gone for good and is dropped; anything else is the
-push service having a bad minute and is kept.
+Keys and subscriptions live in one folder, push_dir() (the push_dir setting,
+else data_dir). A subscription that answers 404 or 410 is gone for good and is
+dropped; anything else is the push service having a bad minute and is kept.
 """
 from __future__ import annotations
 
@@ -37,6 +37,15 @@ SUBS_NAME = "session-companion-push.json"
 # Contact address in the VAPID claim. Push services want a way to reach the
 # sender about a misbehaving subscription; it is never shown to anyone.
 VAPID_SUBJECT = str(config.get("contact", "mailto:admin@localhost"))
+
+
+def push_dir() -> Path:
+    """The folder of the VAPID key and the subscriptions, for every push this
+    install sends or takes: the push_dir setting, else data_dir. A key minted
+    anywhere else would leave every subscribed device signed by a key the push
+    service no longer accepts."""
+    raw = config.get("push_dir") or config.get("data_dir") or Path.home() / ".local" / "share" / "agent-companion"
+    return Path(str(raw)).expanduser()
 
 
 # Plaintext bytes a push can carry. FCM takes 4096 encrypted; aes128gcm adds

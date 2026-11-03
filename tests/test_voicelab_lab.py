@@ -1309,10 +1309,11 @@ def test_the_add_on_gives_the_routes_right_now_line_and_a_voices_notes(client, t
     assert notes["Kit"] == [{"text": "note for Kit", "at": None}]
 
 
-def test_the_router_keeps_the_names_a_host_read_from_it_for_one_release():
+def test_the_router_no_longer_offers_the_librarys_names():
+    """Kept for one release after the reader became agent_companion.voicelab."""
     from agent_companion.server import voicelab as routes
     for name in ("CLIP", "cast_name", "decide", "decision_of", "is_build_dir", "lab_root"):
-        assert getattr(routes, name) is getattr(vl, name), name
+        assert not hasattr(routes, name), name
 
 
 def test_the_route_is_read_only(client):

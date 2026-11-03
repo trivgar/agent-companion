@@ -21,6 +21,7 @@ app_name = "Companion"
 # claude_home = "~/.claude"
 # codex_home = "~/.codex"      # optional: show Codex plan limits from local rollout logs
 # data_dir = "~/.local/share/agent-companion"
+# push_dir = "~/.local/share/agent-companion"   # the push key and the subscribed devices (default data_dir)
 # clear_over_file = "~/.local/share/agent-companion/needs-clear.json"  # who is past the /clear line, for a prompt hook to read
 
 # Scoreboard: days in which a later commit can count as rework. It reads only

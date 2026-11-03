@@ -12,10 +12,6 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from .. import addons, auditions, safe_paths, voicelab, voices
 from . import auth
 
-# Names a host app read from this module before the reader became
-# agent_companion.voicelab, kept for one release (CHANGES.md).
-from ..voicelab import CLIP, cast_name, decide, decision_of, is_build_dir, lab_root  # noqa: E402,F401
-
 TITLE = "Voice lab"
 router = APIRouter()
 NOSTORE = {"Cache-Control": "no-store"}

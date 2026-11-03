@@ -8,8 +8,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from .. import addons, agentvibes, fcm, livecall, ring
-from ..webpush import PushStore
-from . import asks, auth, chat, comms, sessions
+from . import asks, auth, chat, comms, push, sessions
 
 router = APIRouter()
 _CLOSED = {"ok": False, "closed": True, "detail": "No call is open."}
@@ -56,7 +55,7 @@ def _release(names) -> None:
 
 
 def _send_push(title: str, body: str, url: str, tag: str, actions: list[dict]) -> bool:
-    return PushStore(sessions.data_dir()).send(title, body, url=url, tag=tag, actions=actions) > 0
+    return push.store().send(title, body, url=url, tag=tag, actions=actions) > 0
 
 
 def _send_ring(ring_id: str) -> bool:

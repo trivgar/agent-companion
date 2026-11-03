@@ -380,8 +380,8 @@ def notify(text: str, speaker: str = "", session=None) -> None:
     # rather than whichever app we borrowed. In-process: this module already has
     # the package importable, so there is no HTTP round trip to fail.
     try:
-        from agent_companion.webpush import PushStore
-        ps = PushStore(Path.home() / ".claude")
+        from agent_companion.webpush import PushStore, push_dir
+        ps = PushStore(push_dir())
         # Not into the Push page's feed: the chat tab already says it.
         if ps.send(f"{who} needs you", text[:300], url=url, tag=f"needs-{who}"):
             return

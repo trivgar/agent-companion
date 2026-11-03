@@ -2,6 +2,19 @@
 
 What moved, and whether your settings need anything. Newest first.
 
+## 2026-11-03
+- Voice lab: `agent_companion.server.voicelab` no longer offers `lab_root`,
+  `cast_name`, `is_build_dir`, `decision_of`, `decide` and `CLIP`, kept there for
+  one release: import them from `agent_companion.voicelab`.
+- Push: one store for every push, sent or subscribed. New setting `push_dir`
+  (default `data_dir`) holds the push key and the subscribed devices; the
+  needs-you push now comes from it too, not `~/.claude`. A host app with a store
+  of its own sets `agent_companion.server.push._store`, and the routes and every
+  push the core sends use it. `POST /api/push/subscribe` has a guard of its own,
+  `auth.require_subscribe` (`require_write` here), so a host can stand its own
+  check in for subscribing alone; keep the JSON rule in it, since the route reads
+  the body whatever its type.
+
 ## 2026-11-02
 - Voice lab moved to the shape its first host app had, one copy for both:
   `agent_companion.voicelab`, with a thin router. The cast reads tiers from the

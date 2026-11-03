@@ -7,7 +7,8 @@ from agent_companion import server  # noqa: E402
 from agent_companion.server import auth  # noqa: E402
 from routes_walk import all_routes  # noqa: E402
 
-GUARDS = {auth.require_token, auth.require_write, auth.require_hook, auth.require_person, auth.require_person_write}
+GUARDS = {auth.require_token, auth.require_write, auth.require_subscribe, auth.require_hook, auth.require_person,
+          auth.require_person_write}
 OPEN = {"/", "/pair", "/api/pair", "/api/features", "/manifest.json"}
 
 
