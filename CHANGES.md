@@ -3,6 +3,9 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## 2026-11-03
+- Connections: a first row for the settings file. A file that is not valid
+  TOML (a key written twice, say) reads as every setting at its default; the
+  row now says so, with the reason, where only the server's start did before.
 - Merge queue, landing locally: each merged entry, and its row in
   `history.json`, says how many tests passed ("1444 passed"), as one landed
   through a pull request does. A run whose output gives no count says nothing,

@@ -151,8 +151,18 @@ def _source(id_, name, key, p):
     return _row(id_, name, "ok", f"Source {src}.")
 
 
+def _config(p):
+    if p["problem"]:
+        return _row("config", "Settings file", "broken", p["problem"],
+                    "Fix the line the error names: each key may appear only once in the file. See config.example.toml.")
+    if not p["exists"]:
+        return _row("config", "Settings file", "off", "No settings file, so every setting is at its default.",
+                    "Copy config.example.toml to ~/.config/agent-companion/config.toml (INSTALL.md).")
+    return _row("config", "Settings file", "ok", f"Read from {p['path']}.")
+
+
 _BUILDERS = [
-    ("claude", _claude), ("sessions", _sessions), ("devices", _devices), ("tailscale", _tailscale),
+    ("config", _config), ("claude", _claude), ("sessions", _sessions), ("devices", _devices), ("tailscale", _tailscale),
     ("push", _push), ("mail", _mail), ("comms", _comms), ("voice_server", _voice_server), ("collab", _collab),
     ("money", lambda p: _source("money", "Money", "money_source", p)),
     ("fitness", lambda p: _source("fitness", "Fitness", "fitness_source", p)),
@@ -175,6 +185,10 @@ def rows(probes: dict) -> list[dict]:
 
 
 # --- the probes -------------------------------------------------------------
+
+def _probe_config():
+    return {"path": str(config.path()), "exists": config.path().is_file(), "problem": config.problem()}
+
 
 def _run(cmd, timeout=2.0):
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -316,7 +330,7 @@ def _probe_registry(module, key):
 
 
 _PROBES = [
-    ("claude", _probe_claude), ("sessions", _probe_sessions), ("tailscale", _probe_tailscale),
+    ("config", _probe_config), ("claude", _probe_claude), ("sessions", _probe_sessions), ("tailscale", _probe_tailscale),
     ("push", _probe_push), ("devices", _probe_devices), ("mail", _probe_mail), ("comms", _probe_comms),
     ("voice_server", _probe_voice_server), ("collab", _probe_collab),
     ("money", lambda: _probe_registry("money", "money_source")),

@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 # Assumes the repo is cloned at ~/agent-companion with a venv in .venv
-# (INSTALL.md step 4). Edit these two lines if yours lives elsewhere.
+# (INSTALL.md step 3). Edit these two lines if yours lives elsewhere.
 WorkingDirectory=%h/agent-companion
 ExecStart=%h/agent-companion/.venv/bin/python -m agent_companion.server
 # claude, gh and tailscale live in ~/.local/bin or /usr/local/bin.
