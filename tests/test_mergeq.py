@@ -28,8 +28,11 @@ if a[:2] == ["auth", "status"]:
     sys.exit(1 if os.environ.get("FAKE_GH_UNAUTHED") else 0)
 st = os.environ["FAKE_LOG"] + ".prs"
 prs = json.load(open(st)) if os.path.exists(st) else {}
-prs.update(json.loads(os.environ.get("FAKE_EXISTING_PRS", "{}")))
+for k, v in json.loads(os.environ.get("FAKE_EXISTING_PRS", "{}")).items():
+    prs.setdefault(k, v)          # what GitHub did since (a merge) wins over how the test set it up
 origin = os.environ["FAKE_ORIGIN"]
+env = dict(os.environ, GIT_AUTHOR_NAME="gh", GIT_AUTHOR_EMAIL="gh@example.com",
+           GIT_COMMITTER_NAME="gh", GIT_COMMITTER_EMAIL="gh@example.com")
 def oid(br):
     r = subprocess.run(["git", "-C", origin, "rev-parse", "refs/heads/" + br], capture_output=True, text=True)
     return r.stdout.strip()
@@ -42,27 +45,47 @@ def head_oid(br):
     return val if brx == br else oid(br)
 def opt(name):
     return a[a.index(name) + 1]
+def is_open(n, br, base=None):
+    p = info(n)
+    return p["branch"] == br and p.get("state", "OPEN") == "OPEN" and base in (None, p.get("base", "main"))
+def once(flag):
+    # an outside hand lands one commit on main, the first time only
+    if not os.environ.get(flag) or os.path.exists(st + "." + flag):
+        return
+    open(st + "." + flag, "w").close()
+    d = tempfile.mkdtemp()
+    for c in (["clone", "-q", origin, d], ["-C", d, "commit", "-q", "--allow-empty", "-m", "outside " + flag],
+              ["-C", d, "push", "-q", "origin", "HEAD:main"]):
+        subprocess.run(["git"] + c, env=env, capture_output=True, check=True)
 if a[:2] == ["pr", "create"]:
-    br = opt("--head")
+    br, base = opt("--head"), opt("--base")
     if os.environ.get("FAKE_FAIL_CREATE") == br:
         sys.stderr.write("create exploded\\n")
         sys.exit(1)
+    if any(is_open(n, br, base) for n in prs):
+        sys.stderr.write('a pull request for branch "%s" into branch "%s" already exists\\n' % (br, base))
+        sys.exit(1)
     n = max([int(x) for x in prs] + [0]) + 1
-    prs[str(n)] = br
+    prs[str(n)] = {"branch": br, "base": base}
     json.dump(prs, open(st, "w"))
     print("https://github.com/o/r/pull/%d" % n)
 if a[:2] == ["pr", "list"]:
     br = opt("--head")
-    print(json.dumps([{"number": int(n), "headRefOid": head_oid(br),
+    print(json.dumps([{"number": int(n), "headRefOid": head_oid(br), "baseRefName": info(n).get("base", "main"),
                        "headRepositoryOwner": {"login": "o"}, "isCrossRepository": False}
-                      for n in prs if info(n)["branch"] == br]))
+                      for n in prs if is_open(n, br, opt("--base") if "--base" in a else None)]))
 if a[:2] == ["pr", "view"]:
     p = info(a[2])
     state = "MERGED" if os.environ.get("FAKE_MERGED_VIEW") == a[2] else p.get("state", "OPEN")
     print(json.dumps({"headRefName": p["branch"], "headRefOid": head_oid(p["branch"]),
                       "isCrossRepository": p.get("isCrossRepository", False), "state": state,
-                      "title": p.get("title", "queued change")}))
+                      "title": p.get("title", "queued change"), "baseRefName": p.get("base", "main"),
+                      "mergeCommit": {"oid": p["merged"]} if p.get("merged") else None}))
 if a[:2] == ["pr", "checks"]:
+    once("FAKE_LAND_DURING_CHECKS")
+    if os.environ.get("FAKE_RETARGET_DURING_CHECKS"):
+        prs[a[2]] = dict(info(a[2]), base=os.environ["FAKE_RETARGET_DURING_CHECKS"])
+        json.dump(prs, open(st, "w"))
     if os.environ.get("FAKE_CHECKS_FAIL") == a[2]:
         print("pytest (3.11)\\tfail\\t1m\\thttps://example.com")
         sys.exit(1)
@@ -74,13 +97,21 @@ if a[:2] == ["pr", "merge"]:
     if "--match-head-commit" in a and opt("--match-head-commit") != head_oid(br):
         sys.stderr.write("head moved\\n")
         sys.exit(1)
+    if os.environ.get("FAKE_MERGE_QUEUE"):
+        sys.exit(0)               # GitHub's own merge queue took it: accepted, not merged
+    once("FAKE_LAND_BEFORE_MERGE")
     d = tempfile.mkdtemp()
-    env = dict(os.environ, GIT_AUTHOR_NAME="gh", GIT_AUTHOR_EMAIL="gh@example.com",
-               GIT_COMMITTER_NAME="gh", GIT_COMMITTER_EMAIL="gh@example.com")
     for c in (["clone", "-q", origin, d], ["-C", d, "merge", "-q", "--no-ff", "-m", "pr", "origin/" + br],
-              ["-C", d, "push", "-q", "origin", "HEAD:main"]):
+              ["-C", d, "push", "-q", "origin", "HEAD:" + os.environ.get("FAKE_MERGE_INTO", "main")]):
         if subprocess.run(["git"] + c, env=env, capture_output=True).returncode:
             sys.exit(1)
+    merged = subprocess.run(["git", "-C", d, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    prs[a[2]] = dict(info(a[2]), state="MERGED", merged=merged)
+    json.dump(prs, open(st, "w"))
+    if os.environ.get("FAKE_BRANCH_MOVES_ON_MERGE") == br:
+        for c in (["-C", d, "checkout", "-q", "origin/" + br], ["-C", d, "commit", "-q", "--allow-empty", "-m", "more"],
+                  ["-C", d, "push", "-q", "origin", "HEAD:refs/heads/" + br]):
+            subprocess.run(["git"] + c, env=env, capture_output=True, check=True)
     if os.environ.get("FAKE_MERGE_EXIT_1") == br:
         sys.stderr.write("merged, but cleanup failed\\n")
         sys.exit(1)
@@ -136,11 +167,12 @@ def world(tmp_path, monkeypatch):
         w.store.add(name, sha, summary)
         return wt, sha
 
-    def existing_pr(number, name, files, state="OPEN", is_cross_repository=False, title="queued change"):
+    def existing_pr(number, name, files, state="OPEN", is_cross_repository=False, title="queued change",
+                    base="main"):
         wt, sha = branch(name, files)
         sh(wt, "git", "push", "-q", "origin", f"HEAD:refs/heads/{name}")
         prs = json.loads(os.environ.get("FAKE_EXISTING_PRS", "{}"))
-        prs[str(number)] = {"branch": name, "state": state,
+        prs[str(number)] = {"branch": name, "state": state, "base": base,
                             "isCrossRepository": is_cross_repository, "title": title}
         monkeypatch.setenv("FAKE_EXISTING_PRS", json.dumps(prs))
         return wt, sha
@@ -307,7 +339,7 @@ def test_add_pr_pins_the_head_oid(world, capsys):
     assert entry["branch"] == "feat/queued-pr" and entry["sha"] == sha and entry["pr"] == 42
     assert entry["summary"] == "queue an existing change"
     assert world.calls("pr", "view")[0] == [
-        "pr", "view", "42", "--json", "headRefName,headRefOid,isCrossRepository,state,title"
+        "pr", "view", "42", "--json", "baseRefName,headRefName,headRefOid,isCrossRepository,state,title"
     ]
 
 
@@ -399,7 +431,10 @@ def test_merged_pr_with_nonzero_gh_exit_carries_on(world, monkeypatch):
     monkeypatch.setenv("FAKE_MERGED_VIEW", "1")
     assert world.go() == 0
     assert world.origin_has("a.txt") and world.origin_has("b.txt")
-    assert world.calls("pr", "view") == [["pr", "view", "1", "--json", "state"]]
+    # every merge is confirmed by GitHub's word on the PR, whatever gh's exit said
+    said = "state,mergeCommit,headRefOid,isCrossRepository"
+    assert [c for c in world.calls("pr", "view") if c[-1] == said] == [["pr", "view", n, "--json", said]
+                                                                        for n in ("1", "2")]
     assert [o["state"] for o in world.store.last()["outcomes"]] == ["merged", "merged"]
 
 
@@ -412,21 +447,21 @@ def test_successful_merge_deletes_only_the_remote_branch(world):
     assert deleted.returncode == 1
 
 
-def test_replay_conflict_is_reported_and_not_kept(world, monkeypatch):
+def test_a_conflict_while_finding_the_culprit_is_reported_and_not_kept(world, monkeypatch):
     world.queue("feat/a", {"a.txt": "a\n"})
     world.queue("feat/bad", {"BAD": "x\n"})
-    real = mergeq._merge
+    real = mergeq.Merger._merge
     calls = {"n": 0}
 
-    def flaky(tree, e):
+    def flaky(self, e):
         calls["n"] += 1
-        if calls["n"] > 2 and e["branch"] == "feat/a":      # the replay pass only
-            return False
-        return real(tree, e)
-    monkeypatch.setattr(mergeq, "_merge", flaky)
+        if calls["n"] > 2 and e["branch"] == "feat/a":      # tried alone on main, after the whole batch
+            return ["a.txt"]
+        return real(self, e)
+    monkeypatch.setattr(mergeq.Merger, "_merge", flaky)
     world.go()
     states = {o["branch"]: o["state"] for o in world.store.last()["outcomes"]}
-    assert states["feat/a"] == "conflict"
+    assert states == {"feat/a": "conflict", "feat/bad": "failed"}
     assert not world.origin_has("a.txt")
 
 
@@ -469,3 +504,207 @@ def test_a_branch_that_requires_no_checks_still_merges(world, monkeypatch):
     monkeypatch.setenv("FAKE_NO_REQUIRED", "1")
     world.queue("feat/a", {"a.txt": "a\n"})
     assert world.go() == 0 and world.origin_has("a.txt")
+
+
+def test_a_queue_written_as_one_list_becomes_an_entry_each_once(tmp_path):
+    """The store before each entry had a file of its own: queue.json, one list.
+    Its waiting entries become files on first use, and the list stays beside
+    them as queue.json.migrated, so nothing queued is lost in the upgrade."""
+    (tmp_path / "queue.json").write_text(json.dumps([
+        {"branch": "feat/a", "sha": "a" * 40, "summary": "one", "added": 1.0},
+        {"branch": "feat/b", "sha": "b" * 40, "summary": "", "added": 2.0, "pr": 7}]))
+    q = mergeq.Store(tmp_path).queue()
+    assert [(e["branch"], e["sha"], e["summary"], e["added"], e.get("pr")) for e in q] == [
+        ("feat/a", "a" * 40, "one", 1.0, None), ("feat/b", "b" * 40, "", 2.0, 7)]
+    assert not (tmp_path / "queue.json").exists() and (tmp_path / "queue.json.migrated").exists()
+    assert len(mergeq.Store(tmp_path).queue()) == 2        # once: the next store finds no list
+
+
+@pytest.mark.parametrize("env,land,base", [
+    ({}, "pr", "main"),
+    ({"AGENT_COMPANION_MERGEQ_LAND": "local", "AGENT_COMPANION_MERGEQ_BASE": "master"}, "local", "master"),
+    ({"AGENT_COMPANION_MERGEQ_LAND": "rebase"}, "pr", "main"),
+])
+def test_the_settings_say_how_and_onto_what_a_batch_lands(monkeypatch, env, land, base):
+    for k in ("AGENT_COMPANION_MERGEQ_LAND", "AGENT_COMPANION_MERGEQ_BASE"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    assert (mergeq.land_mode(), mergeq.base_branch()) == (land, base)
+
+
+def _add_pr(number):
+    return mergeq.main(["add", "--pr", str(number)])
+
+
+def test_add_pr_refuses_a_pr_onto_another_branch(world, capsys):
+    world.existing_pr(42, "feat/queued-pr", {"queued.txt": "queued\n"}, base="release")
+    cwd = os.getcwd()
+    os.chdir(world.main)
+    try:
+        assert _add_pr(42) == 1
+    finally:
+        os.chdir(cwd)
+    assert "targets release, not main" in capsys.readouterr().err
+    assert world.store.queue() == []
+
+
+def test_a_queued_pr_moved_onto_another_branch_is_not_merged(world, monkeypatch):
+    world.existing_pr(42, "feat/queued-pr", {"queued.txt": "queued\n"})
+    cwd = os.getcwd()
+    os.chdir(world.main)
+    try:
+        assert _add_pr(42) == 0
+    finally:
+        os.chdir(cwd)
+    prs = json.loads(os.environ["FAKE_EXISTING_PRS"])
+    prs["42"]["base"] = "release"            # retargeted on GitHub after it was queued
+    monkeypatch.setenv("FAKE_EXISTING_PRS", json.dumps(prs))
+    assert world.go() == 1
+    assert world.calls("pr", "merge") == []
+    o = world.store.last()["outcomes"][0]
+    assert o["state"] == "push-failed" and "targets release, not main" in o["detail"]
+
+
+def test_an_open_pr_onto_another_branch_is_not_the_one_merged(world, monkeypatch):
+    # GitHub keeps one open PR per head and base; the queue's is the one onto its own base.
+    _, sha = world.existing_pr(42, "feat/a", {"a.txt": "a\n"})
+    prs = json.loads(os.environ["FAKE_EXISTING_PRS"])
+    prs["43"] = {"branch": "feat/a", "state": "OPEN", "base": "release"}
+    monkeypatch.setenv("FAKE_EXISTING_PRS", json.dumps(prs))
+    world.store.add("feat/a", sha)
+    assert world.go() == 0
+    assert [c[2] for c in world.calls("pr", "merge")] == ["42"]
+    assert world.origin_has("a.txt")
+
+
+def test_main_moving_while_the_checks_run_lands_nothing_and_keeps_the_queue(world, monkeypatch):
+    # The checks can take half an hour, and a merge made after main moved would put the batch on a main
+    # the suite never saw. The next batch tests them on the new main, through the PR already open.
+    world.queue("feat/a", {"a.txt": "a\n"})
+    world.queue("feat/b", {"b.txt": "b\n"})
+    monkeypatch.setenv("FAKE_LAND_DURING_CHECKS", "1")
+    assert world.go() == 0
+    assert world.calls("pr", "merge") == [] and not world.origin_has("a.txt")
+    assert [e["branch"] for e in world.store.queue()] == ["feat/a", "feat/b"]
+    last = world.store.last()
+    assert last["result"] == "waiting" and "moved outside the queue" in last["detail"]
+    assert world.go() == 0
+    assert world.origin_has("a.txt") and world.origin_has("b.txt")
+    assert len(world.calls("pr", "create")) == 3       # feat/a twice (the second "already exists"), feat/b once
+
+
+def test_a_merge_github_put_on_a_main_that_moved_after_the_check_is_called_out(world, monkeypatch):
+    # GitHub pins a merge's head, never its base: a commit landing in the seconds between the queue's last
+    # look and the merge goes in under it. The queue says so, and lands nothing more on top.
+    world.queue("feat/a", {"a.txt": "a\n"})
+    world.queue("feat/b", {"b.txt": "b\n"})
+    monkeypatch.setenv("FAKE_LAND_BEFORE_MERGE", "1")
+    assert world.go() == 1
+    assert [c[2] for c in world.calls("pr", "merge")] == ["1"]
+    assert {e["branch"]: e["state"] for e in world.store.entries()} == {"feat/a": "merged", "feat/b": "queued"}
+    assert "never tested" in world.store.last()["detail"]
+
+
+def test_a_merge_github_only_queued_is_not_called_merged(world, monkeypatch):
+    # On a branch that requires GitHub's own merge queue, `gh pr merge` exits 0 having only queued the PR.
+    monkeypatch.setattr(mergeq, "MERGE_CONFIRM_S", 0)
+    monkeypatch.setenv("FAKE_MERGE_QUEUE", "1")
+    world.queue("feat/a", {"a.txt": "a\n"})
+    assert world.go() == 1
+    o = world.store.last()["outcomes"][0]
+    assert o["state"] == "push-failed" and "merge queue" in o["detail"]
+    assert not world.origin_has("a.txt")
+    kept = subprocess.run(["git", "-C", str(world.origin), "show-ref", "--verify", "--quiet", "refs/heads/feat/a"])
+    assert kept.returncode == 0          # GitHub still needs the branch
+
+
+def test_a_branch_that_moved_on_after_its_merge_is_not_deleted(world, monkeypatch):
+    # More work pushed to the branch after the queue tested it: the delete must not take it with it.
+    world.queue("feat/a", {"a.txt": "a\n"})
+    monkeypatch.setenv("FAKE_BRANCH_MOVES_ON_MERGE", "feat/a")
+    assert world.go() == 0
+    assert world.origin_has("a.txt")
+    kept = subprocess.run(["git", "-C", str(world.origin), "show-ref", "--verify", "--quiet", "refs/heads/feat/a"])
+    assert kept.returncode == 0
+
+
+def test_a_branch_inside_an_earlier_one_lands_with_it_and_needs_no_pr(world):
+    _, b_sha = world.branch("feat/b", {"b.txt": "b\n"})
+    wt_a = world.tmp / "wt-feat-a"
+    sh(world.main, "git", "worktree", "add", "-q", "-b", "feat/a", str(wt_a), "feat/b")
+    (wt_a / "a.txt").write_text("a\n")
+    sh(wt_a, "git", "add", "a.txt")
+    sh(wt_a, "git", "commit", "-q", "-m", "a, on top of b")
+    world.store.add("feat/a", sh(wt_a, "git", "rev-parse", "HEAD"))
+    world.store.add("feat/b", b_sha)
+    assert world.go() == 0
+    assert [c[c.index("--head") + 1] for c in world.calls("pr", "create")] == ["feat/a"]
+    assert {e["branch"]: e["state"] for e in world.store.entries()} == {"feat/a": "merged", "feat/b": "merged"}
+    assert world.origin_has("a.txt") and world.origin_has("b.txt")
+
+
+def test_a_crash_after_a_pr_merged_says_main_moved(world, monkeypatch):
+    world.queue("feat/a", {"a.txt": "a\n"})
+    real = mergeq.Store.mark
+
+    def disk_full(self, e):
+        if e["state"] == "merged":
+            raise OSError("disk full")
+        return real(self, e)
+    monkeypatch.setattr(mergeq.Store, "mark", disk_full)
+    assert world.go() == 2
+    last = world.store.last()
+    assert last["result"] == "failed" and last["master_moved"] is True and "AFTER main moved" in last["detail"]
+    assert world.origin_has("a.txt")
+
+
+def test_a_local_landing_whose_push_fails_says_so_and_does_not_exit_clean(world):
+    world.queue("feat/a", {"a.txt": "a\n"})
+    sh(world.main, "git", "config", "remote.origin.pushurl", str(world.tmp / "nowhere.git"))
+    assert world.go(land="local") == 1
+    assert (world.main / "a.txt").exists() and not world.origin_has("a.txt")
+    assert any(m.startswith("the push failed") for m in world.said)
+
+
+def test_a_migration_cut_short_queues_nothing_twice(tmp_path, monkeypatch):
+    (tmp_path / "queue.json").write_text(json.dumps([
+        {"branch": "feat/a", "sha": "a" * 40, "summary": "", "added": 1.0},
+        {"branch": "feat/b", "sha": "b" * 40, "summary": "", "added": 2.0}]))
+    real = os.replace
+
+    def killed(src, dst):
+        if Path(src).name == "queue.json":
+            raise OSError("killed")
+        return real(src, dst)
+    monkeypatch.setattr(mergeq.os, "replace", killed)
+    with pytest.raises(OSError):
+        mergeq.Store(tmp_path)
+    monkeypatch.setattr(mergeq.os, "replace", real)
+    assert [e["branch"] for e in mergeq.Store(tmp_path).queue()] == ["feat/a", "feat/b"]
+
+
+def test_a_pr_retargeted_while_its_checks_run_is_not_merged(world, monkeypatch):
+    world.queue("feat/a", {"a.txt": "a\n"})
+    monkeypatch.setenv("FAKE_RETARGET_DURING_CHECKS", "release")
+    assert world.go() == 1
+    assert world.calls("pr", "merge") == []
+    o = world.store.last()["outcomes"][0]
+    assert o["state"] == "push-failed" and "targets release, not main" in o["detail"]
+
+
+def test_a_merge_that_did_not_reach_main_is_called_out(world, monkeypatch):
+    # Retargeted in the seconds between the queue's last look and the merge: GitHub merged it elsewhere,
+    # onto a branch at the same commit, so only where its merge commit is tells.
+    world.queue("feat/a", {"a.txt": "a\n"})
+    world.queue("feat/b", {"b.txt": "b\n"})
+    monkeypatch.setenv("FAKE_MERGE_INTO", "release")
+    assert world.go() == 1
+    assert not world.origin_has("a.txt") and [c[2] for c in world.calls("pr", "merge")] == ["1"]
+    assert {e["branch"]: e["state"] for e in world.store.entries()} == {"feat/a": "merged", "feat/b": "queued"}
+    assert "is not on main" in world.store.last()["detail"]
+
+
+def test_a_migrated_entry_with_no_usable_time_still_moves_over(tmp_path):
+    (tmp_path / "queue.json").write_text('[{"branch": "feat/a", "sha": "%s", "added": Infinity}]' % ("a" * 40))
+    assert [e["branch"] for e in mergeq.Store(tmp_path).queue()] == ["feat/a"]
