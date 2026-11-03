@@ -14,6 +14,7 @@ H = {"x-agent-companion-key": OWNER}
 W = {**H, "content-type": "application/json", "origin": "http://testserver"}
 
 GOOD = {
+    "config": {"path": "/x/config.toml", "exists": True, "problem": ""},
     "claude": {"found": True, "version": "2.1.0"},
     "sessions": {"exists": True},
     "tailscale": {"installed": True, "serving": True},
@@ -40,6 +41,8 @@ def test_all_good_is_all_ok():
 
 
 @pytest.mark.parametrize("key,patch,id_,state", [
+    ("config", {"problem": "/x/config.toml is not valid TOML (Cannot overwrite a value); every setting is at its default"}, "config", "broken"),
+    ("config", {"exists": False}, "config", "off"),
     ("claude", {"found": False}, "claude", "broken"),
     ("sessions", {"exists": False}, "sessions", "broken"),
     ("tailscale", {"installed": False}, "tailscale", "off"),
@@ -76,6 +79,21 @@ def test_held_comms_says_so():
     p = {k: dict(v) for k, v in GOOD.items()}
     p["comms"]["held"] = True
     assert "hold" in by_id(connections.rows(p))["comms"]["detail"].lower()
+
+
+def test_config_probe_reports_duplicate_key(tmp_path, monkeypatch):
+    settings = tmp_path / "config.toml"
+    settings.write_text("a = 1\na = 2\n")
+    monkeypatch.setenv("AGENT_COMPANION_CONFIG", str(settings))
+    probe = connections._probe_config()
+    assert probe["exists"] is True
+    assert "not valid TOML" in probe["problem"]
+    settings.write_text("a = 1\n")
+    assert connections._probe_config()["problem"] == ""
+
+
+def test_config_row_comes_first():
+    assert connections.rows(GOOD)[0]["id"] == "config"
 
 
 def test_absent_money_and_fitness_registry_are_not_rows():
