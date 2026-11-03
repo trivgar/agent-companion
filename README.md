@@ -379,6 +379,7 @@ hooks run outside any server's process.
 | `sprite_overrides` | A table mapping a session display name to `#rrggbb`, to pin that session's sprite hue. |
 | `url` | The address a push opens. Web Push needs https, e.g. a `tailscale serve` URL. Default `http://127.0.0.1:8770` |
 | `contact` | `mailto:` address push services can reach you at |
+| `push_dir` | Where the push key and the subscribed devices live, for every push sent or subscribed; default `<data_dir>`. Moving it mints a new key, and every device subscribed before must subscribe again |
 | `icons` | A module with `icon_data(tag, title)` and `icon_for(tag, title)` for each push's picture (optional) |
 | `archive_roots` | Old transcript trees to count in the lifetime total (a list; `:`-separated in the environment) |
 | `codex_home` | Codex home to read local rollout logs from; default `~/.codex`, and absent logs keep the Codex strip off |

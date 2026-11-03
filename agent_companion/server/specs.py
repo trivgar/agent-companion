@@ -13,8 +13,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from .. import specs
-from ..webpush import PushStore
-from . import auth, chat, sessions
+from . import auth, chat, push
 
 TITLE = "Specs"
 router = APIRouter()
@@ -30,7 +29,7 @@ def live_by_repo() -> dict[str, list[str]]:
 
 
 def _send(title: str, body: str, url: str, tag: str) -> bool:
-    return PushStore(sessions.data_dir()).send(title, body, url=url, tag=tag, actions=[]) > 0
+    return push.store().send(title, body, url=url, tag=tag, actions=[]) > 0
 
 
 def start(app) -> None:

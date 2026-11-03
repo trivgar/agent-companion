@@ -24,11 +24,10 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import config, jobreaper, restart
 from ..clearline import Watcher as ClearLineWatcher  # by name: .clearline is the router
-from ..webpush import PushStore
 from . import auth, restore, sessions
 from . import auth, newsession, sessions
 from . import livecall
-from . import clearline
+from . import clearline, push
 from .features import FEATURES
 from .gzip import GzipTextMiddleware
 
@@ -89,7 +88,7 @@ def _clear_rows() -> list[dict]:
 
 
 def _send_clear_push(title: str, body: str, url: str, tag: str) -> bool:
-    return PushStore(sessions.data_dir()).send(title, body, url=url, tag=tag, actions=[]) > 0
+    return push.store().send(title, body, url=url, tag=tag, actions=[]) > 0
 
 
 def create_app(token: str | None = None, owner_key: str | None = None) -> FastAPI:

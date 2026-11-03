@@ -288,6 +288,15 @@ def require_write(request: Request) -> None:
         raise HTTPException(403, "writes come from this page only")
 
 
+def require_subscribe(request: Request) -> None:
+    """A device subscribing to push: require_write. Its own guard, so a host app
+    whose installed page cannot carry the token can stand a check of its own in.
+    That check must keep the JSON rule: the route reads the body whatever its
+    type, and a form or text/plain post needs no preflight, so without it any
+    page open in the browser could subscribe a device of its own to every push."""
+    require_write(request)
+
+
 def require_person_write(request: Request) -> None:
     """A shared person's write, with the same JSON and origin walls."""
     if not is_json(request.headers.get("content-type")):

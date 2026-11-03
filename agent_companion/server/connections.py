@@ -210,15 +210,15 @@ def _probe_tailscale():
 
 
 def _probe_push():
-    from .sessions import data_dir
-    d = data_dir()
-    from ..webpush import PushStore, VAPID_NAME
+    from . import push
+    from ..webpush import VAPID_NAME
+    s = push.store()
     try:
-        k = json.loads((d / VAPID_NAME).read_text())
+        k = json.loads((s.home / VAPID_NAME).read_text())
         vapid = bool(k.get("private") and k.get("public"))
     except (OSError, ValueError, AttributeError):
         vapid = False
-    return {"vapid": vapid, "devices": PushStore(d).devices()}
+    return {"vapid": vapid, "devices": s.devices()}
 
 
 def _probe_devices():

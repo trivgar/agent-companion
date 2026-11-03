@@ -7,8 +7,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from .. import health as core
-from ..webpush import PushStore
-from . import auth, sessions
+from . import auth, push, sessions
 
 TITLE = "Machine"
 router = APIRouter()
@@ -21,7 +20,7 @@ def health():
 
 
 def _send(title: str, body: str, url: str, tag: str) -> bool:
-    return PushStore(sessions.data_dir()).send(title, body, url=url, tag=tag, actions=[]) > 0
+    return push.store().send(title, body, url=url, tag=tag, actions=[]) > 0
 
 
 def start(app) -> None:
