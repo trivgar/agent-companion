@@ -116,3 +116,39 @@ def voice_host_status(host: str, report: dict | None, now: float) -> dict:
     add-on costs only its words."""
     got = _call("voice_host_status", None, None, host, report, now)
     return got if isinstance(got, dict) else {}
+
+
+def voicelab_now(state: dict | None, builds: list[dict], now: float) -> dict | None:
+    """The voice lab's "right now" line in your words: {"kind", "text"}, and
+    "build" (a build's folder) when it names one. `state` is voices.state()
+    (None when no cast is configured), `builds` the lab's builds, newest
+    first. None keeps the core's own line, from the voice host's state."""
+    got = _call("voicelab_now", None, None, state, builds, now)
+    if not isinstance(got, dict) or not isinstance(got.get("text"), str):
+        return None
+    return {key: got[key] for key in ("kind", "text", "build") if isinstance(got.get(key), str)}
+
+
+def voicelab_notes(names: list[str]) -> list[dict]:
+    """Notes on a cast voice from what only you keep (a list of work waiting,
+    say): [{"text", "at"}], newest first, "at" a time or None. `names` is the
+    voice's name and its aliases. The core keeps none."""
+    got = _call("voicelab_notes", [], [], names)
+    out = []
+    for note in got if isinstance(got, list) else []:
+        if isinstance(note, dict) and isinstance(note.get("text"), str):
+            at = note.get("at")
+            out.append({"text": note["text"][:200],
+                        "at": float(at) if isinstance(at, (int, float)) and not isinstance(at, bool) else None})
+    return out
+
+
+def voicelab_decided(name: str, directory: str, path, want: bool) -> dict:
+    """What follows a build newly wanted in the voice lab (filing the work to
+    make it live, say): {"filed": bool, "detail": words}. Called once a build
+    is wanted that was not, after the decision is saved; the core files
+    nothing."""
+    got = _call("voicelab_decided", None, {"filed": False, "detail": "not filed"}, name, directory, path, want)
+    if not isinstance(got, dict):
+        return {"filed": False, "detail": ""}
+    return {"filed": bool(got.get("filed")), "detail": str(got.get("detail") or "")}
