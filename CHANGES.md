@@ -3,6 +3,10 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## 2026-11-03
+- Merge queue, landing locally: each merged entry, and its row in
+  `history.json`, says how many tests passed ("1444 passed"), as one landed
+  through a pull request does. A run whose output gives no count says nothing,
+  never "0 passed".
 - Merge queue: on a machine where the app has no service of its own, it no longer
   says it restarted it.
 - Merge queue: one engine, `agent_companion.mergeq.Merger`, that a host app

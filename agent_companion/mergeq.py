@@ -748,8 +748,9 @@ class Merger:
             raise GitError(f"{self.base_branch} is not at the tested commit after the fast-forward")
         res["master_moved"] = True
         res["commits_added"] = int(git(self.repo, "rev-list", "--count", f"{base}..{tested}") or 0)
+        passed = (parse_summary(res.get("suite_tail", "")) or {}).get("passed", 0)
         for e in todo:
-            self._mark(e, MERGED, "")
+            self._mark(e, MERGED, f"{passed} passed" if passed else "")
             res["merged"].append(e["id"])
         # The base branch has moved. A failing push is reported, never a reason to pretend it did not.
         res["pushed_commits"] = len(git(self.repo, "rev-list", f"origin/{self.base_branch}..{self.base_branch}",

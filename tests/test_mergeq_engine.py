@@ -576,6 +576,29 @@ def test_what_the_suite_says_about_its_run_is_kept_in_the_result(world):
     assert world.merger.run()["runner"] == {"where": "here"}
 
 
+def test_a_merged_entry_says_how_many_passed_as_a_pull_request_does(world):
+    """Landing locally, each merged entry and its history row carry the suite's
+    passed count, as the pull request path's always did ("1444 passed")."""
+    real = world.merger.suite
+
+    def suite(tree, ids):
+        green, bad, _ = real(tree, ids)
+        return green, bad, "12 passed in 3.40s"
+    world.merger.suite = suite
+    world.branch("a", {"a.txt": "a"}); world.branch("b", {"b.txt": "b"})
+    r = world.merger.run()
+    assert r["result"] == "green", r
+    assert [o["detail"] for o in r["outcomes"]] == ["12 passed", "12 passed"]
+    assert [e["reason"] for e in world.store.entries()] == ["12 passed", "12 passed"]
+    assert [h["detail"] for h in world.store.history()] == ["12 passed", "12 passed"]
+
+
+def test_a_merged_entry_with_no_count_in_the_tail_claims_none(world):
+    """A tail with no summary in it gives an empty detail, never "0 passed"."""
+    world.branch("a", {"a.txt": "a"})
+    assert world.merger.run()["outcomes"][0]["detail"] == ""
+
+
 def test_a_queued_branch_already_on_main_is_settled_and_nothing_restarts(world):
     world.branch("a", {"a.txt": "a"})
     sh(world.repo, "merge", "-q", "--no-ff", "-m", "a by hand", "a")
