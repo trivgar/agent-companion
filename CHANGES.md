@@ -3,6 +3,8 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## 2026-11-03
+- Merge queue: on a machine where the app has no service of its own, it no longer
+  says it restarted it.
 - Merge queue: one engine, `agent_companion.mergeq.Merger`, that a host app
   plugs its own suite, notices, handoffs and a hold on its other work into, as
   fields. On red it now finds the branch to blame by trying each one alone on

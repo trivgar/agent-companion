@@ -711,14 +711,18 @@ class Merger:
         res["result"] = "green"
         try:
             rr = self.restart()
-            res["restarted"] = getattr(rr, "returncode", 0) == 0
-            if not res["restarted"]:
-                res["restart_error"] = (getattr(rr, "stderr", "") or "restart failed").strip()[:300]
+            if rr is None:
+                res["restarted"] = None
+            else:
+                res["restarted"] = getattr(rr, "returncode", 0) == 0
+                if not res["restarted"]:
+                    res["restart_error"] = (getattr(rr, "stderr", "") or "restart failed").strip()[:300]
         except Exception as exc:
             res["restarted"], res["restart_error"] = False, repr(exc)[:300]
         if self.land == "pr":
-            res["after"] = "; ".join(x for x in (res.get("after", ""), "restarted" if res["restarted"] else
-                                                 "restart failed") if x)
+            restart_after = ("restarted" if res["restarted"] is True else
+                             "restart failed" if res["restarted"] is False else "")
+            res["after"] = "; ".join(x for x in (res.get("after", ""), restart_after) if x)
         try:
             self._clean_worktrees(landed)
         except Exception:

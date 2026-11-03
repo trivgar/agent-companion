@@ -215,6 +215,17 @@ def test_green_batch_opens_and_merges_prs(world):
     assert [o["branch"] for o in world.store.history()] == ["feat/a", "feat/b"]
 
 
+def test_no_service_of_its_own_is_not_called_restarted(world):
+    # this machine has no agent-companion unit: `systemctl --user cat` fails, so nothing restarts
+    (world.tmp / "bin" / "systemctl").write_text(
+        f"#!/bin/sh\necho \"$@\" >> {world.tmp}/systemctl.log\n[ \"$2\" = cat ] && exit 1\nexit 0\n")
+    world.queue("feat/a", {"a.txt": "a\n"}, "adds a")
+    assert world.go() == 0
+    last = world.store.last()
+    assert last["restarted"] is None and "restart" not in last["after"]
+    assert "restart agent-companion" not in (world.tmp / "systemctl.log").read_text()
+
+
 def test_red_batch_bisects_and_lands_the_rest(world):
     world.queue("feat/a", {"a.txt": "a\n"})
     world.queue("feat/bad", {"BAD": "x\n"})
