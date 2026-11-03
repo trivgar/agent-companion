@@ -9,7 +9,7 @@
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB">
   <img alt="Library: no dependencies" src="https://img.shields.io/badge/library-no%20dependencies-2ea44f">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue">
-  <img alt="Status: 0.1" src="https://img.shields.io/badge/status-0.1-orange">
+  <img alt="Status: 0.2" src="https://img.shields.io/badge/status-0.2-orange">
 </p>
 
 Run four or five Claude Code sessions at once and the questions pile up. Which
@@ -278,7 +278,7 @@ Just want to look? `python3 -m pip install -e '.[app,push]'`, then
 
 ## Status
 
-Version 0.1. Tested: the library, the server routes and the pages at phone
+Version 0.2. Tested: the library, the server routes and the pages at phone
 width, the mail drafter against a fake source, the comms scripts against a
 fake Piper, the merge queue against throwaway repositories, and the leak scan
 (`python3 -m pytest -q`). GitHub runs the whole suite on Python 3.11 and 3.13
