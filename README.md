@@ -396,6 +396,8 @@ hooks run outside any server's process.
 | `health_mem_full_pct` | Memory-use warning percentage; default 92 |
 | `health_push` | Send optional local Machine warning pushes; default false |
 | `data_dir` | Directory for app state, including restore snapshots; default `~/.local/share/agent-companion` |
+| `mergeq_land` | How the merge queue lands a green batch: `pr` (a pull request per branch, merged once its required checks pass) or `local` (the base branch fast-forwarded in the checkout and pushed); default `pr` |
+| `mergeq_base` | The branch the merge queue lands on; default `main` |
 | `score_window_days` | Days after a recorded commit in which replacing one of its added lines counts as rework; default 7 |
 | `restore_snapshot_interval_min` | Snapshot timer cadence in minutes, 1 through 60; default 5 |
 | `systemd_user_dir` | Where the restore timer installer writes user units; default `~/.config/systemd/user` |

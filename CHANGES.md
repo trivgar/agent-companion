@@ -3,6 +3,34 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## 2026-11-03
+- Merge queue: one engine, `agent_companion.mergeq.Merger`, that a host app
+  plugs its own suite, notices, handoffs and a hold on its other work into, as
+  fields. On red it now finds the branch to blame by trying each one alone on
+  the base (it replayed them one at a time), first checks that the base itself
+  is green, and runs the whole suite once more on what stays. Each entry is a
+  file of its own in the state directory and keeps its state, so `status`
+  shows trouble until it is fixed or lands; a `queue.json` from before is
+  moved into entries on first use. New settings `mergeq_land` (`pr`, the
+  default, a pull request per branch as before; or `local`, the base branch
+  fast-forwarded in the checkout and pushed) and `mergeq_base` (default
+  `main`). A merged branch's worktree is removed when it is clean. Nothing to
+  change in your settings.
+- Merge queue, landing through pull requests: a PR merges only onto the branch
+  the queue tested on (`add --pr` refuses one that targets another branch, and
+  its target is read again before the merge), and only while that branch is
+  still where the queue tested it. It is fetched again right before each
+  merge, since the required checks can take half an hour; if it moved, what is
+  left stays queued and is tested on the new one by the next batch. GitHub
+  cannot be told what to merge onto, so after each merge the queue checks
+  where it went: one that did not land on the tested base is called out and
+  stops the batch. A merge counts once GitHub says the PR is merged: on a
+  branch that uses GitHub's own merge queue, `gh pr merge` only queues it, and
+  that is now reported, not taken for a merge. The remote branch is deleted
+  only at the commit the queue pushed. A branch already on the base (merged by
+  hand) is settled without a batch. `mergeq run` exits 1 when a local
+  landing's push fails. In the tests, the fake `gh` now records merges, and
+  two tests expect what that brings: a `gh pr view` after each merge, and
+  `baseRefName` among the fields read by `add --pr`.
 - Voice lab: `agent_companion.server.voicelab` no longer offers `lab_root`,
   `cast_name`, `is_build_dir`, `decision_of`, `decide` and `CLIP`, kept there for
   one release: import them from `agent_companion.voicelab`.
