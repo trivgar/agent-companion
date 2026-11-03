@@ -3,6 +3,23 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## 2026-11-02
+- Voice lab moved to the shape its first host app had, one copy for both:
+  `agent_companion.voicelab`, with a thin router. The cast reads tiers from the
+  coordinator's `identity.sh` as well as `tiers.conf`, each voice's engine from
+  its voice server, and the coordinator repository's recent commits that name
+  the voice (`changes`); a build's scores carry `rz` and the audition ceiling,
+  and an audition done more than 14 days ago with nothing waiting is history.
+  A test line says which host rendered it (`X-Rendered-By`, from `speak.log`).
+  New settings `voicelab_running_minutes` (default 15) and
+  `voicelab_baseline_tags` (default `["live"]`). New add-on hooks
+  `voicelab_now(state, builds, now)` (the "right now" line in your words),
+  `voicelab_notes(names)` (a voice's notes) and `voicelab_decided(name,
+  directory, path, want)` (what follows a newly wanted build: its `filed` and
+  `detail` are the decide answer's). The tier, decide and test routes refuse a
+  write from another page (403); decide and clip take `dir` (was `directory`);
+  a save that fails is a 500 that says why. `agent_companion.server.voicelab`
+  still offers `lab_root`, `cast_name`, `is_build_dir`, `decision_of`, `decide`
+  and `CLIP` for one release: import them from `agent_companion.voicelab`.
 - Specs and Files moved to the shape their first host app had, one copy for
   both. Checkouts come from `checkout_dirs` (the child folders of each listed
   folder; a listed folder is never itself one), else from `[projects]` as

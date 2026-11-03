@@ -383,6 +383,8 @@ hooks run outside any server's process.
 | `archive_roots` | Old transcript trees to count in the lifetime total (a list; `:`-separated in the environment) |
 | `codex_home` | Codex home to read local rollout logs from; default `~/.codex`, and absent logs keep the Codex strip off |
 | `tts_dir` | Directory containing an executable speech coordinator `speak.sh`; optional and compatible with AgentVibes-style coordinators |
+| `voicelab_running_minutes` | Voice lab: a part-done build that moved within this many minutes shows as running; default 15 |
+| `voicelab_baseline_tags` | Voice lab: the tags a build's `scores.json` gives the live voice's own takes, its baseline (a list; `:`-separated in the environment); default `["live"]` |
 | `job_reaper_after_min` | Age before an orphaned background snapshot shell is terminated; default 60 |
 | `job_reaper_every_min` | Reaper interval in minutes; default 10, and 0 turns it off |
 | `job_reaper_max_hours` | Hours past which a background job under a live session is reaped too; unset or 0 leaves those alone |

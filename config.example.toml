@@ -85,9 +85,16 @@ app_name = "Companion"
 # fitness_weight_entity = "sensor.example_weight"
 
 # Your own plug-in module (optional): who else may use shared pages, what
-# happens when an ask is made or answered, whether you are asleep, and extra
-# private places. See CHANGES.md.
+# happens when an ask is made or answered, whether you are asleep, extra
+# private places, and the voice lab's "right now" line, a voice's notes and
+# what follows a build you want. See CHANGES.md.
 # addons = "my_addons"
+
+# Voice lab: a part-done build shows as running while it moved within this
+# many minutes (default 15), and a build's scores.json tags the live voice's
+# own takes, its baseline, with one of these (default ["live"]).
+# voicelab_running_minutes = 360
+# voicelab_baseline_tags = ["live"]
 
 # Projects never read aloud or sent to an outside voice service
 # private_projects = ["ledger"]
