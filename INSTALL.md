@@ -103,6 +103,13 @@ chmod 700 ~/.config/agent-companion
 chmod 600 ~/.config/agent-companion/config.toml
 ```
 
+The copied file already sets `server_port`, `server_bind`, `name` and
+`app_name`. Each key may appear only once, so change a key on its own line
+rather than adding it again: a second copy makes the file invalid, and then
+every setting reads as its default. The server says so when it starts, and
+the Connections tab shows it. Put plain keys above the first `[table]` line,
+because a key below one belongs to that table.
+
 Start the server in one terminal:
 
 ```bash
@@ -179,9 +186,11 @@ enable browser push after opening it over the HTTPS Tailscale address.
 
 ### Asks, chat, and deferred handoff hooks
 
-The installer writes its PermissionRequest and AskUserQuestion hooks plus
-SessionStart and UserPromptSubmit hooks for deferred handoffs to
-`~/.claude/settings.json` and makes a timestamped backup first:
+The installer writes its PermissionRequest and AskUserQuestion hooks,
+SessionStart and UserPromptSubmit hooks for deferred handoffs, and a
+PostToolUse hook on Bash that records each `git commit` a session makes for
+the Scoreboard, to `~/.claude/settings.json`, and makes a timestamped backup
+first:
 
 ```bash
 .venv/bin/python -m agent_companion.server.install_hooks
@@ -251,10 +260,26 @@ You do not need Home Assistant to use the rest of the dashboard.
 
 ### Mail drafting
 
-Mail is optional. Gmail uses the Gmail connector configured in your Claude
-account; Outlook is a plug-in described in
-[docs/mail-outlook.md](docs/mail-outlook.md). The code creates drafts only. It
-does not send mail.
+Mail is optional. The code creates drafts only. It does not send mail.
+
+The Mail tab shows the account named `owner`. For Gmail through the Gmail
+connector configured in your Claude account, add this table to the end of
+`~/.config/agent-companion/config.toml`, below every top-level key:
+
+```toml
+[mail_accounts.owner]
+source = "gmail"
+```
+
+For Gmail over IMAP with an app password instead, set `source = "imap"` and
+`credentials_file = "~/.config/agent-companion/gmail-imap.json"`, then create
+that file with mode 600, holding
+`{"address": "you@example.com", "password": "<the app password>"}`. Outlook is
+a plug-in described in [docs/mail-outlook.md](docs/mail-outlook.md). That page
+also has the steps for the hourly drafting timer, for either provider
+("Installing the timer"). Without a voice guide, drafts are plain, brief and polite;
+`.venv/bin/python -m agent_companion.mail voice-guide` builds one from your
+sent Gmail through the connector.
 
 ### Voice lab
 
@@ -267,7 +292,9 @@ Nvidia driver rather than installing a Linux driver in the distribution. See
 
 The Android app is optional. Before building it, install Node.js and npm, a
 JDK supported by the Android Gradle build, and the Android SDK with its build
-tools. Then configure Firebase outside the repository:
+tools. Then configure Firebase outside the repository. Set these keys, and
+change any that are already in the file rather than adding them twice:
+`app_name` is there from the example, and `url` is if you set up Tailscale.
 
 ```toml
 app_name = "Companion"

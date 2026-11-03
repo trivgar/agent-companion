@@ -4,7 +4,7 @@ Description=agent-companion: merge the queued branches (tests once, then PRs)
 [Service]
 Type=oneshot
 # Assumes the repo is cloned at ~/agent-companion with a venv in .venv
-# (INSTALL.md step 4). gh must be signed in as the user that owns the queue.
+# (INSTALL.md step 3). gh must be signed in as the user that owns the queue.
 WorkingDirectory=%h/agent-companion
 Environment=PATH=%h/agent-companion/.venv/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONUNBUFFERED=1

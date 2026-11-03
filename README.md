@@ -42,27 +42,30 @@ For PC-specific safeguards that are intentionally not shipped here, see
 
 ## What it does
 
-The tabs, in the order they sit on the page. Turn any of them off with the
-`features` setting.
+The tabs, in the order they sit on the page, then the pieces that work around
+them. Turn any tab off with the `features` setting.
 
 **Sessions.** One card per live Claude Code session: model, cost, how full its
 context is, the git branch, and its last reply. A session that is waiting on
 you says so. Set a context line to flag a top-level session that needs
-`/clear` and receive one push notification on each crossing. Background Bash
-jobs show their command and age, and stale orphan snapshot shells are reaped
-after a configurable delay. Each card has a deterministic procedural pixel
-sprite based on its display name. At the top, your 5-hour and 7-day spend, real
+`/clear` and receive one push notification on each crossing, which opens that
+session. Background Bash jobs show their command and age. Stuck ones are
+stopped: an orphan after a configurable delay, and one under a live session
+too once you set an age for that;
+`python3 -m agent_companion.jobreaper --dry-run` lists what would go. Each
+card has a deterministic procedural pixel sprite based on its display name. At the top, your 5-hour and 7-day spend, real
 Claude limits, and, when local Codex rollout logs exist, Codex plan limits.
 
 **Machine.** Local CPU use, load, memory, swap, configured disks, CPU temperature, GPU details when their command is available, and the five heaviest process command names. Missing readings explain why rather than reading as zero. Optional warning pushes are off by default.
 
 **Scoreboard.** For commits the installed hook recorded in configured projects, shows each session's added lines, lines later reworked inside a configurable window, and optional good or bad owner marks. The marks are counts only and never alter rework.
 
-**Restore.** A small local snapshot records each tmux-backed session every few
-minutes. After a reboot or crash, the Sessions tab lists missing sessions and
-can resume them in their old tmux names and folders.
+**Restore**, on the Sessions tab. A small local snapshot records each
+tmux-backed session every few minutes. After a reboot or crash, the Sessions
+tab lists missing sessions and can resume them in their old tmux names and
+folders.
 
-**New session.** Start Claude in a folder listed in `[projects]` with an optional first message; the page sends a project's key, never a path, says who already works there, and keeps unavailable folders disabled. The command is typed into a new tmux pane's shell, and a start counts once a Claude process is seen in that pane.
+**New session**, on the Sessions tab too. Start Claude in a folder listed in `[projects]` with an optional first message; the page sends a project's key, never a path, says who already works there, and keeps unavailable folders disabled. The command is typed into a new tmux pane's shell, and a start counts once a Claude process is seen in that pane.
 
 **Files.** Browse every checkout like a repository view, its worktrees under
 it as branches: folders, files, the folder's README, the last commit, images.
@@ -77,6 +80,8 @@ before the edit; it never pushes.
 multiple-choice question, it shows up here with Allow and Deny. If the command
 was long and got shortened, the page makes you open the full text before it
 lets you allow it. Ignore it and the session's own prompt still appears.
+Claude Code's default auto mode settles most prompts itself, so only what it
+will not decide comes here; INSTALL.md says how to send every one.
 
 **Chat.** Type to any running session from your phone. Your words go into that
 session's terminal pane, as if from the keyboard. Every send is guarded and
@@ -109,7 +114,10 @@ is open. Hold and volume are on the Settings page. See
 
 **Voice lab.** Make a voice from clips of someone who has agreed to it, on your
 Nvidia card (GPT-SoVITS, inside WSL2), then use it in comms. The tab shows
-what you have built. Training happens in the shell, not on the page. See
+what you have built and plays its clips. With a speech coordinator of your own
+in `tts_dir`, it also lets you audition a voice, keep or skip a build, set a
+voice's tier and hear a test line. Training happens in the shell, not on the
+page. See
 [voicelab/README.md](voicelab/README.md).
 
 **Connections.** One honest row per thing that could be wired up (hooks, Piper,
@@ -134,11 +142,13 @@ information, never orders. See [COLLAB.md](COLLAB.md).
 main. A session queues its finished branch, and the queue merges the batch,
 runs the whole suite once, then opens and merges a pull request for each
 branch only when it is green. A collaborator's pull request goes through the
-same queue with `mergeq add --pr <number>`. On red, it tries each branch alone
-to find the one to blame, and the rest still land. If main moves outside the
-queue while it lands, what is left waits for the next batch. `mergeq_land = "local"`
-fast-forwards the base branch in the checkout and pushes it instead. COLLAB.md
-has the details.
+same queue with `mergeq add --pr <number>`. On red, it first checks main
+itself, since nothing merges onto a red main, then tries each branch alone to
+find the one to blame; the rest land once the whole suite passes on them
+again. If main moves outside the queue while it lands, what is left waits for
+the next batch. Once a branch lands, its worktree is removed if nothing in it
+is uncommitted. `mergeq_land = "local"` fast-forwards the base branch in the
+checkout and pushes it instead. COLLAB.md has the details.
 
 ## How it fits together
 
@@ -150,12 +160,14 @@ flowchart LR
     cc["Claude Code sessions"] -->|hooks: asks, spoken lines| server
     cc -->|writes| files["~/.claude transcripts"]
     server -->|reads| files
-    timers["Timers: mail drafter, merge queue"] --> server
+    drafter["Mail drafter (timer)"] -->|replies to approve| server
+    mq["Merge queue (timer)"]
     piper["Piper voices"] --> server
   end
   server -.->|optional| voice["Voice server on the Nvidia card"]
   server -.->|optional| ha["Home Assistant on the Pi (fitness)"]
-  timers -.->|drafts only| mail["Gmail or Outlook"]
+  drafter -.->|drafts only| mail["Gmail or Outlook"]
+  mq -.->|optional: tests, then pull requests| gh["GitHub"]
 ```
 
 ## Local writes
@@ -174,8 +186,10 @@ corresponding feature is used:
   `job_reaper_every_min = 0` to turn that reaper off.
 - The standalone `notify` hook writes a waiting marker at
   `~/.claude/session-companion-waiting/<pid>`. If that hook sends Web Push, it
-  can also create `session-companion-vapid.json` and
-  `session-companion-push.json` there.
+  uses the same push key and devices as the dashboard,
+  `session-companion-vapid.json` and `session-companion-push.json` in
+  `push_dir` (the app data directory unless you set it), and can create them
+  there.
 - The Files tab writes only a text file git lists in a checkout it shows
   (`checkout_dirs`, else `[projects]`).
   It writes beside the file and renames it, then commits only that file when it
@@ -208,6 +222,15 @@ corresponding feature is used:
   `agent-companion-restore-snapshot.timer` in the user systemd directory;
   snapshots are private local state and a recent multi-session snapshot is
   retained for up to four hours after every saved session disappears at once.
+- With `tts_dir` naming a speech coordinator of your own, the comms routes
+  change that coordinator's own settings files (`volume.conf`, `announce.conf`,
+  its effects, mute and hold files), and the Voice lab's buttons write its
+  `tiers.conf` and a `decision.json` in the audition or build folder they act
+  on. Each file is written beside and renamed into place.
+- The merge queue keeps its entries, its history and an integration worktree
+  in `~/.local/share/agent-companion/mergeq` (or `AGENT_COMPANION_MERGEQ_DIR`).
+  Once a branch lands it removes that branch's own worktree, only when nothing
+  in it is uncommitted.
 
 The app's own asks, mail queue, clips, voices, paired-device hashes, and other
 state live in `~/.local/share/agent-companion/` and
@@ -224,12 +247,12 @@ made only when their matching feature is enabled or configured:
 | Anthropic usage endpoint | When the dashboard refreshes real Claude Code usage limits and a local Claude Code login can supply the needed token. |
 | GitHub | `gh` contacts GitHub for the optional merge queue and collaboration notes. The Comms installer also downloads the pinned Piper archive from GitHub. |
 | Hugging Face | The Comms installer downloads the selected Piper voice files. |
-| Gmail | The optional mail drafter runs Claude Code with the Gmail connector after mail is configured. |
+| Gmail | The optional mail drafter runs Claude Code with the Gmail connector after mail is configured, or, for an account set to `source = "imap"`, talks to Gmail's IMAP server itself with the app password in that account's `credentials_file`. |
 | Outlook | Only an Outlook plug-in that you add and configure can contact Microsoft services. |
 | Home Assistant | The fitness source contacts the configured Home Assistant URL. |
 | Browser Web Push | A subscribed browser's push endpoint is contacted when Web Push is enabled. |
 | Firebase Cloud Messaging | The optional Android delivery path contacts FCM only with `fcm_service_account_file` configured and a registered device. |
-| Voice server | Comms contacts the configured custom voice server only for a `server:<name>` voice. |
+| Voice server | Comms contacts the configured custom voice server only for a `server:<name>` voice. With `tts_dir` naming a coordinator that lists hosts in its `remote-hosts.conf`, the dashboard asks each host serving a voice in use for its `/health`. |
 | Gemini Live | The Live Call button and routes are enabled only when `gemini_key_file` is set. The browser sends microphone audio and selected session text to Google for that call. |
 
 ## Safety, in short
@@ -238,7 +261,7 @@ The full list, with the reasons, is in [CLAUDE.md](CLAUDE.md).
 
 - **Mail never sends.** There is no send, reply or forward code, and a test fails if one appears.
 - **Writes need a paired device.** An approval needs your phone's key, a JSON request and the page's own address, all three. The token the permission hook uses can approve nothing.
-- **Loopback only.** The server listens on `127.0.0.1`. Your phone reaches it through `tailscale serve`; the port is never opened to the network.
+- **Loopback only.** The server listens on `127.0.0.1`, the `server_bind` default; leave it there. Your phone reaches it through `tailscale serve`, so the port is never opened to the network.
 - **Nothing personal in the repo.** Examples use made-up names, and a test scans for real-looking addresses, tailnet names and keys.
 - **Voices need consent.** Only stock Piper voices ship. A custom voice is for someone who has agreed.
 - **The honest limit.** A session running in bypass-permissions mode on your account can do anything you can, including reading the hook token or pairing itself. The walls stop a session that is waiting on a prompt from approving itself through this server. Where asks matter, do not run sessions in bypass mode.
@@ -257,12 +280,17 @@ Just want to look? `python3 -m pip install -e '.[app,push]'`, then
 
 Version 0.1. Tested: the library, the server routes and the pages at phone
 width, the mail drafter against a fake source, the comms scripts against a
-fake Piper, and the leak scan (`python3 -m pytest -q`).
+fake Piper, the merge queue against throwaway repositories, and the leak scan
+(`python3 -m pytest -q`). GitHub runs the whole suite on Python 3.11 and 3.13
+for every pull request and every Monday, on whatever versions pip installs
+that day, as a new install gets them.
 
-Run end to end on a fresh install (2026-11-01): a clone of this repo,
-`INSTALL.md`, pairing, every tab at phone width, and a real Claude Code
-session through the hooks (a permission ask allowed from the Asks tab, chat,
-a commit reaching the scoreboard).
+Run end to end on a fresh install (2026-11-03): a clone of this repo,
+`INSTALL.md`, pairing, all 16 tabs at phone width with no console errors,
+failed requests or sideways scrolling, and a real Claude Code session through
+the hooks (a permission ask allowed from the Asks tab, chat, a commit recorded
+for the Scoreboard). The first load reads your whole history once: about 20
+seconds for 11 GB of transcripts on that machine.
 
 Not yet run on a real install: Gmail drafting live, the Restore button,
 Tailscale to a real phone, the Android app's background features (push comms,
@@ -345,6 +373,10 @@ background runs), and `tokens` by type.
 | `messages` | Messages sessions send each other (SendMessage) |
 | `notify` | A permission and question hook that marks the session waiting and speaks or pushes one line |
 | `webpush` | Web Push to your own devices, VAPID keys kept locally |
+| `checkouts`, `files`, `specs` | The checkouts Files and Specs show, grouped by repository; reading and saving a checkout's files; the specs and plans in them |
+| `clearline` | The context line: which top-level sessions are past it, and one push per crossing |
+| `jobreaper` | Stops stuck background snapshot shells; `python3 -m agent_companion.jobreaper --dry-run` lists them |
+| `mergeq` | The merge queue's engine (`Merger`), which a host app plugs its own suite, notices and hold into |
 
 An unknown model is counted as **unpriced**, never as free: the lifetime
 figure says how many tokens it could not price.
@@ -375,7 +407,8 @@ and a device subscribed.
 
 In `~/.config/agent-companion/config.toml`, or as `AGENT_COMPANION_<KEY>`
 in the environment, which wins. A file as well as the environment, because
-hooks run outside any server's process.
+hooks run outside any server's process. The server's own settings
+(`server_port`, `features`, fitness and more) are in `config.example.toml`.
 
 | Key | What it does |
 |---|---|
@@ -387,7 +420,10 @@ hooks run outside any server's process.
 | `icons` | A module with `icon_data(tag, title)` and `icon_for(tag, title)` for each push's picture (optional) |
 | `archive_roots` | Old transcript trees to count in the lifetime total (a list; `:`-separated in the environment) |
 | `codex_home` | Codex home to read local rollout logs from; default `~/.codex`, and absent logs keep the Codex strip off |
+| `clear_line` | Context tokens at which a top-level session says it needs `/clear`; default 400000 |
+| `clear_over_file` | Where the clear line writes who is past it, for a prompt hook to read; default `<data_dir>/needs-clear.json` |
 | `tts_dir` | Directory containing an executable speech coordinator `speak.sh`; optional and compatible with AgentVibes-style coordinators |
+| `[voice_host_names.<host>]` | How the voices status line names a host whose bare name reads wrong: `subject`, `possessive` and `place`, such as "the voice host on this PC", "this PC's" and "this PC" |
 | `voicelab_running_minutes` | Voice lab: a part-done build that moved within this many minutes shows as running; default 15 |
 | `voicelab_baseline_tags` | Voice lab: the tags a build's `scores.json` gives the live voice's own takes, its baseline (a list; `:`-separated in the environment); default `["live"]` |
 | `job_reaper_after_min` | Age before an orphaned background snapshot shell is terminated; default 60 |
@@ -478,9 +514,13 @@ python3 -m playwright install chromium
 python3 -m pytest -q -rs
 ```
 
-Every test builds its own temporary `~/.claude`; none reads yours. Without
-the `playwright install` step the page tests skip rather than fail; `-rs`
-lists every skip, so a short run says why.
+The suite runs in a temporary home of its own, so no test reads your
+`~/.claude` or your settings. It still finds the browsers Playwright
+installed, and the leak scan's private deny list if you keep one
+(`~/.config/agent-companion/leak-terms`, or `AGENT_COMPANION_LEAK_TERMS`);
+without that list only the generic patterns run. Without the
+`playwright install` step the page tests skip rather than fail; `-rs` lists
+every skip, so a short run says why.
 
 ## License
 
