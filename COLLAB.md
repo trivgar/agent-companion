@@ -11,7 +11,8 @@ Claudes work together without stepping on each other.
   whole suite once, then opens and merges the PRs. See CLAUDE.md, "How work
   lands".
 - A collaborator starts a branch from `main`, pushes the branch, and opens a
-  pull request. Do not push to `main`.
+  pull request onto `main` (the queue refuses one onto another branch). Do not
+  push to `main`.
 - Ask the owner to queue the PR, or leave a note with your `for-<owner>` label.
   The owner runs `python -m agent_companion.mergeq add --pr <number>`.
 - The queue tests the batch with the full suite, then merges that pull request

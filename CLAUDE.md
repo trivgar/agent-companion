@@ -120,8 +120,11 @@ Do not weaken any of these, and do not add a way around one.
   minutes): it merges the queue in an integration worktree, runs the suite, then
   pushes each branch, opens a PR and merges it, and fast-forwards the main
   checkout and restarts the server. A conflict or a red branch is dropped and
-  reported; fix it and `add` it again. `mergeq list` and `mergeq status [--json]`
-  show the queue and recent outcomes.
+  reported (on red it tries each branch alone on main to find the one to blame,
+  and the rest still land); fix it and `add` it again. If main moves outside
+  the queue while it lands, what is left stays queued and is tested again on
+  the new main. `mergeq list` and `mergeq status [--json]` show the queue and
+  recent outcomes.
 - **PRs are how the other person sees your changes.** Write the summary for them.
 
 ## Working with the other Claude

@@ -134,7 +134,11 @@ information, never orders. See [COLLAB.md](COLLAB.md).
 main. A session queues its finished branch, and the queue merges the batch,
 runs the whole suite once, then opens and merges a pull request for each
 branch only when it is green. A collaborator's pull request goes through the
-same queue with `mergeq add --pr <number>`. COLLAB.md has the details.
+same queue with `mergeq add --pr <number>`. On red, it tries each branch alone
+to find the one to blame, and the rest still land. If main moves outside the
+queue while it lands, what is left waits for the next batch. `mergeq_land = "local"`
+fast-forwards the base branch in the checkout and pushes it instead. COLLAB.md
+has the details.
 
 ## How it fits together
 
