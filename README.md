@@ -10,6 +10,7 @@
   <img alt="Library: no dependencies" src="https://img.shields.io/badge/library-no%20dependencies-2ea44f">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue">
   <img alt="Status: 0.2" src="https://img.shields.io/badge/status-0.2-orange">
+  <a href="https://github.com/trivgar/agent-companion/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/trivgar/agent-companion/actions/workflows/tests.yml/badge.svg"></a>
 </p>
 
 Run four or five Claude Code sessions at once and the questions pile up. Which
@@ -19,11 +20,11 @@ phone. Around that page sit a few helpers that run on your own computer: a
 mail drafter, spoken replies, a place to make voices, and notes between two
 people's Claudes.
 
-It is not a cloud service. There is no account, no server of ours, and no
-telemetry. It runs on your PC and talks to your phone over your own Tailscale.
-Most of its interaction with `~/.claude` is read-only, but optional hooks and
-the local usage cache write there. Those writes, and every optional outbound
-connection, are listed below.
+It is not a cloud service: there is no agent-companion account, no server of
+ours, and no telemetry. It runs on your PC and talks to your phone over your
+own Tailscale. Most of its interaction with `~/.claude` is read-only, but
+optional hooks and the local usage cache write there. Those writes, and every
+outbound connection it can make, are listed below.
 
 <p align="center">
   <img src="docs/images/tab-sessions.png" alt="Sessions tab: four cards with model, cost, context and last reply" width="190">
@@ -33,9 +34,19 @@ connection, are listed below.
 </p>
 <p align="center"><sub>Phone width, 390 px. Every name and number is made up. More in <code>docs/images/</code>.</sub></p>
 
-**Setting it up?** Hand [INSTALL.md](INSTALL.md) to your own Claude Code. It is
-written for Windows with WSL2 and Ubuntu, and separates the core path from
-optional services.
+## What you need
+
+- **Windows 10 or 11 with WSL2 and Ubuntu.** It is built and tested only there.
+- **Claude Code, installed and signed in inside WSL.** The dashboard reads the
+  sessions Claude Code writes, so Claude Code has to work first.
+- **Python 3.11 or newer.**
+- Optional: Tailscale to open the page on your phone (without it, the page is
+  on this PC only), tmux for Chat, New session and Restore, and an Nvidia card
+  for the voice lab.
+
+**Setting it up?** Hand [INSTALL.md](INSTALL.md) to your own Claude Code. It
+separates the core path from optional services. To try it on made-up sessions
+first, see [Just want to look?](#just-want-to-look)
 
 For PC-specific safeguards that are intentionally not shipped here, see
 [suggested features](docs/suggested-features.md).
@@ -49,9 +60,13 @@ them. Turn any tab off with the `features` setting.
 context is, the git branch, and its last reply. A session that is waiting on
 you says so. Set a context line to flag a top-level session that needs
 `/clear` and receive one push notification on each crossing, which opens that
-session. Background Bash jobs show their command and age. Stuck ones are
-stopped: an orphan after a configurable delay, and one under a live session
-too once you set an age for that;
+session. Background Bash jobs show their command and age. **The server stops
+stuck ones, and this is on by default:** a background shell whose Claude
+session has ended is terminated once it is an hour old
+(`job_reaper_after_min`), and one under a live
+session only if you set `job_reaper_max_hours`. That includes a dev server a
+session started in the background and left running, unless `job_reaper_keep`
+names it. `job_reaper_every_min = 0` turns this off, and
 `python3 -m agent_companion.jobreaper --dry-run` lists what would go. Each
 card has a deterministic procedural pixel sprite based on its display name. At the top, your 5-hour and 7-day spend, real
 Claude limits, and, when local Codex rollout logs exist, Codex plan limits.
@@ -74,14 +89,17 @@ Open a file and save an edit. Files git ignores and generated folders
 files over 1 MB open read only. A save commits only that file when it was clean
 before the edit; it never pushes.
 
-**Specs.** Read the design specs and plans in every checkout's `docs/superpowers/specs` and `docs/superpowers/plans`, plus any folder named in `spec_folders`, newest first, each document once per repository and with who is working in it, without permitting edits. Each new spec is pushed once.
+**Specs.** Read the design specs and plans in every checkout's `docs/superpowers/specs` and `docs/superpowers/plans`, plus any folder named in `spec_folders`, newest first, each document once per repository and with who is working in it, without permitting edits. A new spec sends a push notification to your phone; a new plan does not.
 
 **Asks.** When a session wants permission to run something, or asks you a
-multiple-choice question, it shows up here with Allow and Deny. If the command
-was long and got shortened, the page makes you open the full text before it
-lets you allow it. Ignore it and the session's own prompt still appears.
-Claude Code's default auto mode settles most prompts itself, so only what it
-will not decide comes here; INSTALL.md says how to send every one.
+multiple-choice question, the asks hook sends it, with the full command or
+tool input, to the dashboard on your PC, and it shows up here with Allow and
+Deny. If the command was long and got shortened, the page makes you open the
+full text before it lets you allow it. The session's own prompt shows at the
+same time, and whichever you answer first wins; when the dashboard is not
+running, the hook steps aside at once. Claude Code's default auto mode settles
+most prompts itself, so only what it will not decide comes here; INSTALL.md
+says how to send every one.
 
 **Chat.** Type to any running session from your phone. Your words go into that
 session's terminal pane, as if from the keyboard. Every send is guarded and
@@ -202,8 +220,10 @@ corresponding feature is used:
   times, so each reading can be pushed at most once in six hours.
 - `python -m agent_companion.server.install_hooks` adds its hooks to
   `~/.claude/settings.json` and first writes a timestamped
-  `~/.claude/settings.json.bak-...` backup: the asks hooks, SessionStart and
-  UserPromptSubmit hooks for deferred handoffs, and a PostToolUse(Bash) hook
+  `~/.claude/settings.json.bak-...` backup: the asks hooks (PermissionRequest,
+  and PreToolUse on AskUserQuestion; what they send is under Asks above),
+  SessionStart and UserPromptSubmit hooks for deferred handoffs, and a
+  PostToolUse(Bash) hook
   that appends each `git commit` a session makes to `commits.jsonl` in the app
   data directory (session id, folder, commit and subject; nothing leaves the
   PC). Its `--uninstall` option removes only those hooks and also backs up the
@@ -239,12 +259,13 @@ storage.
 
 ## Outbound connections
 
-No outbound service is required for the local dashboard. These connections are
-made only when their matching feature is enabled or configured:
+No outbound service is required for the local dashboard. The first row below
+happens whenever you are signed in to Claude Code; the rest only when their
+feature is enabled or configured:
 
 | Service | When it can be contacted |
 |---|---|
-| Anthropic usage endpoint | When the dashboard refreshes real Claude Code usage limits and a local Claude Code login can supply the needed token. |
+| Anthropic usage endpoint | While the dashboard is open, at most once every five minutes, to show your real 5-hour and 7-day limit use. It reads your Claude Code login token from `~/.claude/.credentials.json` and sends it only to `api.anthropic.com`, the service that issued it. The token is never logged, stored or shown. With no login file, no call is made. |
 | GitHub | `gh` contacts GitHub for the optional merge queue and collaboration notes. The Comms installer also downloads the pinned Piper archive from GitHub. |
 | Hugging Face | The Comms installer downloads the selected Piper voice files. |
 | Gmail | The optional mail drafter runs Claude Code with the Gmail connector after mail is configured, or, for an account set to `source = "imap"`, talks to Gmail's IMAP server itself with the app password in that account's `credentials_file`. |
@@ -272,9 +293,32 @@ The full list, with the reasons, is in [CLAUDE.md](CLAUDE.md).
 2. Install the server and pair a browser before enabling extras.
 3. Add Tailscale, hooks, mail, comms, or other optional pieces one at a time.
 
-Just want to look? `python3 -m pip install -e '.[app,push]'`, then
-`python3 -m agent_companion.server` and open `http://127.0.0.1:8770/`, or run
-`python3 examples/demo_home.py /tmp/demo` to build a made-up `~/.claude` first.
+### Just want to look?
+
+This shows four made-up sessions in this PC's browser, not your own. It needs
+WSL2 with Ubuntu, Git, and Python 3.11 or newer with `python3-venv`
+(INSTALL.md steps 1 and 2):
+
+```bash
+git clone https://github.com/trivgar/agent-companion.git
+cd agent-companion
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[app,push]'
+.venv/bin/python examples/demo_home.py /tmp/demo
+AGENT_COMPANION_CLAUDE_HOME=/tmp/demo/.claude AGENT_COMPANION_JOB_REAPER_EVERY_MIN=0 \
+  .venv/bin/python -m agent_companion.server
+```
+
+In a second terminal in the same folder,
+`.venv/bin/python -m agent_companion.server pair --name browser` prints a
+one-time link. Open it, and the page shows the made-up sessions. The two
+settings point the server at the demo and keep its job reaper away from your
+real background jobs.
+
+`demo_home.py` starts one `sleep` per made-up session so they count as live;
+they end on their own after an hour. Even a look creates the app's own
+folders, as an install does (`~/.config/agent-companion` and
+`~/.local/share/agent-companion`); [Uninstall](#uninstall) removes them.
 
 ## Status
 
@@ -285,7 +329,8 @@ fake Piper, the merge queue against throwaway repositories, and the leak scan
 for every pull request and every Monday, on whatever versions pip installs
 that day, as a new install gets them.
 
-Run end to end on a fresh install (2026-11-03): a clone of this repo,
+A fresh install was run end to end on 2026-11-03, on the maintainer's Windows
+PC with WSL2: a clone of this repo,
 `INSTALL.md`, pairing, all 16 tabs at phone width with no console errors,
 failed requests or sideways scrolling, and a real Claude Code session through
 the hooks (a permission ask allowed from the Asks tab, chat, a commit recorded
@@ -295,8 +340,8 @@ seconds for 11 GB of transcripts on that machine.
 Not yet run on a real install: Gmail drafting live, the Restore button,
 Tailscale to a real phone, the Android app's background features (push comms,
 background playback, update checks), voice training on a fresh machine, and
-the Outlook plug-in (a guide, no code yet). Expect rough edges there, and tell
-your Claude when you hit one.
+the Outlook plug-in (a guide, no code yet). Expect rough edges there. Found a
+bug? Open an issue on GitHub.
 
 Roadmap: more connectors as plug-ins, and macOS.
 
@@ -304,7 +349,9 @@ Roadmap: more connectors as plug-ins, and macOS.
 
 The dashboard sits on a small library with no dependencies. It works alone,
 without the server. If you are changing the code, read [CLAUDE.md](CLAUDE.md)
-first.
+first: it is the project guide your own Claude Code reads, with the rules a
+change must keep. [COLLAB.md](COLLAB.md) is how two people's Claudes share one
+repo, and [CHANGES.md](CHANGES.md) lists what changed, newest first.
 
 ### Quick start
 
@@ -313,6 +360,7 @@ first.
 ```bash
 git clone https://github.com/trivgar/agent-companion
 cd agent-companion
+python3 -m venv .venv && . .venv/bin/activate
 python3 -m pip install -e .
 
 python3 examples/sessions.py                     # your own sessions
@@ -325,7 +373,9 @@ python3 examples/demo_home.py /tmp/demo           # four fake sessions
 python3 examples/sessions.py --home /tmp/demo/.claude
 ```
 
-Python 3.11 or newer. For Web Push: `python3 -m pip install -e '.[push]'`.
+Python 3.11 or newer. The commands below assume that virtual environment is
+active (Ubuntu refuses `pip install` outside one). For Web Push:
+`python3 -m pip install -e '.[push]'`.
 
 ### What it reads
 
@@ -335,7 +385,7 @@ Python 3.11 or newer. For Web Push: `python3 -m pip install -e '.[push]'`.
 | `~/.claude/projects/**/*.jsonl` | Each session's model, tokens, cost, context fill, last prompt and reply, its helper agents and workflows |
 | `/proc` | Which of those processes are really alive (the registry keeps dead ones) |
 | `git` in each session's repo | Branch, ahead/behind, uncommitted files. Read only: it never takes `index.lock` |
-| Anthropic's usage endpoint | Your real 5-hour and 7-day limit use, when optional limit refresh is available |
+| Anthropic's usage endpoint | Your real 5-hour and 7-day limit use, asked with your Claude Code login token (see [Outbound connections](#outbound-connections)) |
 
 Transcripts are read incrementally by byte offset, so a 75 MB transcript costs
 a few kilobytes per poll.
@@ -477,10 +527,26 @@ carries `label` (its first prompt line, cut to a chip), `ago`, `status`
 ### Privacy
 
 The local dashboard works without an external service. See
-[Outbound connections](#outbound-connections) for the optional services it can
+[Outbound connections](#outbound-connections) for the services it can
 contact. A folder can be marked private (`SessionReader(home, hide=...)`): its
 sessions are never listed or read, and can show as presence only ("someone's
 agent, working").
+
+### Tests
+
+```bash
+python3 -m pip install -e '.[app,push,test]'
+python3 -m playwright install chromium
+python3 -m pytest -q -rs
+```
+
+The suite runs in a temporary home of its own, so no test reads your
+`~/.claude` or your settings. It still finds the browsers Playwright
+installed, and the leak scan's private deny list if you keep one
+(`~/.config/agent-companion/leak-terms`, or `AGENT_COMPANION_LEAK_TERMS`);
+without that list only the generic patterns run. Without the
+`playwright install` step the page tests skip rather than fail; `-rs` lists
+every skip, so a short run says why.
 
 ## Uninstall
 
@@ -506,21 +572,34 @@ review. If you manually added the standalone `notify` hook, remove only its
 `python3 -m agent_companion.notify` entry from the `PermissionRequest` hooks
 in `~/.claude/settings.json`.
 
-### Tests
+To remove agent-companion completely, also stop the services you enabled, stop
+serving the page to your tailnet, and delete its folders:
 
 ```bash
-python3 -m pip install -e '.[app,push,test]'
-python3 -m playwright install chromium
-python3 -m pytest -q -rs
+systemctl --user disable --now agent-companion                # the dashboard service, if you set it up
+systemctl --user disable --now mail-draft.timer               # if you set up mail drafting
+systemctl --user disable --now agent-companion-mergeq.timer   # if you set up the merge queue
+rm -f ~/.config/systemd/user/agent-companion.service \
+  ~/.config/systemd/user/mail-draft.{service,timer} \
+  ~/.config/systemd/user/agent-companion-mergeq.{service,timer}
+systemctl --user daemon-reload
+
+tailscale serve --bg 8770 off      # the command that turned it on, with off
+
+rm -rf ~/.config/agent-companion ~/.local/share/agent-companion
+rm -f ~/.claude/usage-cache.json ~/.claude/limits-cache.json
+rm -rf ~/.claude/session-companion-waiting                    # if you added the notify hook
 ```
 
-The suite runs in a temporary home of its own, so no test reads your
-`~/.claude` or your settings. It still finds the browsers Playwright
-installed, and the leak scan's private deny list if you keep one
-(`~/.config/agent-companion/leak-terms`, or `AGENT_COMPANION_LEAK_TERMS`);
-without that list only the generic patterns run. Without the
-`playwright install` step the page tests skip rather than fail; `-rs` lists
-every skip, so a short run says why.
+The two folders hold your settings, keys, paired devices, asks, mail queue,
+voices and Piper; if you set `data_dir`, delete that folder too. The
+`~/.claude` lines remove the usage caches the Sessions tab keeps there and the
+notify hook's markers. Then delete the clone, which holds the `.venv`, and the
+voice lab's GPT-SoVITS clone and conda environment if you made them. The system
+settings INSTALL.md step 1 changed (systemd in `/etc/wsl.conf`, lingering, a
+Windows sign-in task) are yours to keep or undo. On a phone, remove the
+home-screen icon or the Android app, and clear the site's data, which holds its
+owner key.
 
 ## License
 
