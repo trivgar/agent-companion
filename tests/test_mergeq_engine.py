@@ -357,6 +357,40 @@ def test_settle_alone_clears_landed_trouble_and_leaves_the_rest(world):
     assert mq.status(world.store)["trouble"] == []
 
 
+def _main_moves(world):
+    (world.repo / "m.txt").write_text("m\n")
+    sh(world.repo, "add", "."); sh(world.repo, "commit", "-qm", "main moves")
+
+
+def test_trouble_whose_changes_reached_main_as_other_commits_is_settled(world):
+    """A failed branch rebuilt under another name lands its commits as copies:
+    the same changes under new hashes, so the pinned sha never reaches main and
+    the entry would stay failed for good. Every change already on main is a
+    landing too."""
+    e = world.branch("a", {"a.txt": "a"})
+    world.merger._mark(e, mq.FAILED, "turns the suite red")
+    _main_moves(world)
+    sh(world.repo, "cherry-pick", "a")                 # the same change, as a new commit
+    assert world.merger.settle() == ["a"]
+    got = world.store.entries()[0]
+    assert got["state"] == "merged" and "same changes" in got["reason"], got
+    assert mq.status(world.store)["trouble"] == []
+
+
+def test_trouble_with_a_change_main_still_lacks_stays(world):
+    sh(world.repo, "checkout", "-q", "-b", "a", "main")
+    for n in ("a1", "a2"):
+        (world.repo / f"{n}.txt").write_text(n + "\n")
+        sh(world.repo, "add", "."); sh(world.repo, "commit", "-qm", n)
+    sh(world.repo, "checkout", "-q", "main")
+    e = mq.Store.add(world.store, "a", sh(world.repo, "rev-parse", "a"), speaker="A", session="s-a")
+    world.merger._mark(e, mq.FAILED, "turns the suite red")
+    _main_moves(world)
+    sh(world.repo, "cherry-pick", "a~1")               # only the first of its two changes
+    assert world.merger.settle() == []
+    assert world.store.entries()[0]["state"] == "failed"
+
+
 def _nothing_moved(world, before):
     assert sh(world.repo, "rev-parse", "main") == before
     assert world.calls["push"] == world.calls["restart"] == 0
