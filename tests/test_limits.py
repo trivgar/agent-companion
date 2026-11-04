@@ -17,6 +17,26 @@ def _creds(tmp_path, token="tok-abc", expires_ms=None):
 
 # --- credentials -----------------------------------------------------------
 
+@pytest.mark.parametrize("value", ["false", "0", "no", "off", "False"])
+def test_claude_limits_off_reads_no_token_and_calls_nothing(monkeypatch, tmp_path, value):
+    home = _creds(tmp_path)
+    monkeypatch.setenv("AGENT_COMPANION_CLAUDE_LIMITS", value)
+    monkeypatch.setattr(limits, "read_token", lambda h: pytest.fail("read the token"))
+    monkeypatch.setattr(limits, "fetch", lambda t, url=limits.USAGE_URL: pytest.fail("called Anthropic"))
+
+    assert limits.LimitsCache(home, tmp_path / "cache.json").get(force=True) == {"available": False, "reason": "off"}
+
+
+def test_claude_limits_is_on_by_default(monkeypatch, tmp_path):
+    for name in ("AGENT_COMPANION_CLAUDE_LIMITS", "CLAUDE_COMPANION_CLAUDE_LIMITS"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(limits, "fetch",
+                        lambda t, url=limits.USAGE_URL: ({"five_hour": {"utilization": 3}}, ""))
+
+    assert limits.enabled() is True
+    assert limits.LimitsCache(_creds(tmp_path), tmp_path / "cache.json").get(force=True)["five_hour"]["utilization"] == 3
+
+
 def test_reads_the_oauth_token(tmp_path):
     assert limits.read_token(_creds(tmp_path)) == "tok-abc"
 

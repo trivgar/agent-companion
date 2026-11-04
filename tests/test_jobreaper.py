@@ -108,6 +108,15 @@ def test_reaper_signals_the_orphan_tree_and_writes_jsonl(tmp_path):
                       "age_s": 3999, "why": "orphaned, over 1 h", "cmd": "pytest -q"}
 
 
+def test_the_worker_is_off_until_the_owner_sets_an_interval(monkeypatch):
+    for name in ("AGENT_COMPANION_JOB_REAPER_EVERY_MIN", "CLAUDE_COMPANION_JOB_REAPER_EVERY_MIN"):
+        monkeypatch.delenv(name, raising=False)
+
+    assert jobreaper.every_s() == 0, "a stranger's dev server must not vanish unasked"
+    monkeypatch.setenv("AGENT_COMPANION_JOB_REAPER_EVERY_MIN", "10")
+    assert jobreaper.every_s() == 600
+
+
 def test_zero_interval_disables_the_worker(monkeypatch):
     monkeypatch.setattr(jobreaper.config, "get", lambda key, default=None: 0 if key == "job_reaper_every_min" else default)
 

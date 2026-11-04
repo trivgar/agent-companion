@@ -3,6 +3,13 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## 2026-11-03
+- The job reaper is off by default. A server that relied on the old default
+  (every 10 minutes) stops reaping until you set `job_reaper_every_min = 10`; a
+  timer of your own running `python3 -m agent_companion.jobreaper` is unchanged.
+- `claude_limits = false` stops the usage-limits call to Anthropic, and with it
+  every read of your Claude Code login token. It stays on by default.
+- SECURITY.md (report a security problem privately on GitHub) and
+  CONTRIBUTING.md (how a pull request is read, tested and landed).
 - Merge queue: an entry whose every change already reached the base under other
   commits (a branch rebuilt under another name, landed as rebased copies) is
   settled as merged, instead of staying failed in the status for good.

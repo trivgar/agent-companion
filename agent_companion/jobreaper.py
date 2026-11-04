@@ -9,6 +9,10 @@ it, is never stuck. Each job is judged again before every signal pass, and
 every pid's identity checked, so a recycled pid or a job that stopped being
 stuck is never signalled. ``python3 -m agent_companion.jobreaper --dry-run``
 lists what a pass would stop and signals nothing.
+
+The server's worker is off until ``job_reaper_every_min`` is set: it
+terminates processes, and an owner who never asked for that should not find a
+dev server gone. A pass run by a timer of your own (``main``) does not read it.
 """
 from __future__ import annotations
 
@@ -26,7 +30,7 @@ from typing import NamedTuple
 
 from . import bgjobs, config
 
-DEFAULT_EVERY_MIN = 10
+DEFAULT_EVERY_MIN = 0             # off unless the owner sets job_reaper_every_min
 DEFAULT_AFTER_MIN = 60
 GRACE_S = 10.0
 LOG_NAME = "job-reaper.jsonl"
