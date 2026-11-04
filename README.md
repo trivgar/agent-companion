@@ -60,13 +60,12 @@ them. Turn any tab off with the `features` setting.
 context is, the git branch, and its last reply. A session that is waiting on
 you says so. Set a context line to flag a top-level session that needs
 `/clear` and receive one push notification on each crossing, which opens that
-session. Background Bash jobs show their command and age. **The server stops
-stuck ones, and this is on by default:** a background shell whose Claude
-session has ended is terminated once it is an hour old
-(`job_reaper_after_min`), and one under a live
-session only if you set `job_reaper_max_hours`. That includes a dev server a
-session started in the background and left running, unless `job_reaper_keep`
-names it. `job_reaper_every_min = 0` turns this off, and
+session. Background Bash jobs show their command and age. The server can also
+stop stuck ones, **off until you set `job_reaper_every_min`**: then a
+background shell whose Claude session has ended is terminated once it is an
+hour old (`job_reaper_after_min`), and one under a live session only if you
+set `job_reaper_max_hours`. That includes a dev server a session started in the
+background and left running, so name those in `job_reaper_keep`.
 `python3 -m agent_companion.jobreaper --dry-run` lists what would go. Each
 card has a deterministic procedural pixel sprite based on its display name. At the top, your 5-hour and 7-day spend, real
 Claude limits, and, when local Codex rollout logs exist, Codex plan limits.
@@ -200,8 +199,8 @@ corresponding feature is used:
 - The stale background-job reaper writes `job-reaper.jsonl` in the app data
   directory when it terminates a stuck snapshot shell: an orphan, or with
   `job_reaper_max_hours` set, one under a live session past that age. It
-  records the time, process ids, age, why and redacted command; set
-  `job_reaper_every_min = 0` to turn that reaper off.
+  records the time, process ids, age, why and redacted command. The reaper
+  runs only once `job_reaper_every_min` is set.
 - The standalone `notify` hook writes a waiting marker at
   `~/.claude/session-companion-waiting/<pid>`. If that hook sends Web Push, it
   uses the same push key and devices as the dashboard,
@@ -260,12 +259,12 @@ storage.
 ## Outbound connections
 
 No outbound service is required for the local dashboard. The first row below
-happens whenever you are signed in to Claude Code; the rest only when their
-feature is enabled or configured:
+happens whenever you are signed in to Claude Code, unless you turn it off; the
+rest only when their feature is enabled or configured:
 
 | Service | When it can be contacted |
 |---|---|
-| Anthropic usage endpoint | While the dashboard is open, at most once every five minutes, to show your real 5-hour and 7-day limit use. It reads your Claude Code login token from `~/.claude/.credentials.json` and sends it only to `api.anthropic.com`, the service that issued it. The token is never logged, stored or shown. With no login file, no call is made. |
+| Anthropic usage endpoint | While the dashboard is open, at most once every five minutes, to show your real 5-hour and 7-day limit use. It reads your Claude Code login token from `~/.claude/.credentials.json` and sends it only to `api.anthropic.com`, the service that issued it. The token is never logged, stored or shown. With no login file, no call is made, and `claude_limits = false` turns it off. |
 | GitHub | `gh` contacts GitHub for the optional merge queue and collaboration notes. The Comms installer also downloads the pinned Piper archive from GitHub. |
 | Hugging Face | The Comms installer downloads the selected Piper voice files. |
 | Gmail | The optional mail drafter runs Claude Code with the Gmail connector after mail is configured, or, for an account set to `source = "imap"`, talks to Gmail's IMAP server itself with the app password in that account's `credentials_file`. |
@@ -305,15 +304,13 @@ cd agent-companion
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[app,push]'
 .venv/bin/python examples/demo_home.py /tmp/demo
-AGENT_COMPANION_CLAUDE_HOME=/tmp/demo/.claude AGENT_COMPANION_JOB_REAPER_EVERY_MIN=0 \
-  .venv/bin/python -m agent_companion.server
+AGENT_COMPANION_CLAUDE_HOME=/tmp/demo/.claude .venv/bin/python -m agent_companion.server
 ```
 
 In a second terminal in the same folder,
 `.venv/bin/python -m agent_companion.server pair --name browser` prints a
-one-time link. Open it, and the page shows the made-up sessions. The two
-settings point the server at the demo and keep its job reaper away from your
-real background jobs.
+one-time link. Open it, and the page shows the made-up sessions.
+`AGENT_COMPANION_CLAUDE_HOME` is what points the server at the demo.
 
 `demo_home.py` starts one `sleep` per made-up session so they count as live;
 they end on their own after an hour. Even a look creates the app's own
@@ -341,7 +338,9 @@ Not yet run on a real install: Gmail drafting live, the Restore button,
 Tailscale to a real phone, the Android app's background features (push comms,
 background playback, update checks), voice training on a fresh machine, and
 the Outlook plug-in (a guide, no code yet). Expect rough edges there. Found a
-bug? Open an issue on GitHub.
+bug? Open an issue on GitHub. A security problem goes privately instead, as
+[SECURITY.md](SECURITY.md) says, and [CONTRIBUTING.md](CONTRIBUTING.md) says
+how to send a change.
 
 Roadmap: more connectors as plug-ins, and macOS.
 
@@ -470,6 +469,7 @@ hooks run outside any server's process. The server's own settings
 | `icons` | A module with `icon_data(tag, title)` and `icon_for(tag, title)` for each push's picture (optional) |
 | `archive_roots` | Old transcript trees to count in the lifetime total (a list; `:`-separated in the environment) |
 | `codex_home` | Codex home to read local rollout logs from; default `~/.codex`, and absent logs keep the Codex strip off |
+| `claude_limits` | Ask Anthropic for your real 5-hour and 7-day limit use with your Claude Code login token; default true, and false never reads the token or makes the call |
 | `clear_line` | Context tokens at which a top-level session says it needs `/clear`; default 400000 |
 | `clear_over_file` | Where the clear line writes who is past it, for a prompt hook to read; default `<data_dir>/needs-clear.json` |
 | `tts_dir` | Directory containing an executable speech coordinator `speak.sh`; optional and compatible with AgentVibes-style coordinators |
@@ -477,7 +477,7 @@ hooks run outside any server's process. The server's own settings
 | `voicelab_running_minutes` | Voice lab: a part-done build that moved within this many minutes shows as running; default 15 |
 | `voicelab_baseline_tags` | Voice lab: the tags a build's `scores.json` gives the live voice's own takes, its baseline (a list; `:`-separated in the environment); default `["live"]` |
 | `job_reaper_after_min` | Age before an orphaned background snapshot shell is terminated; default 60 |
-| `job_reaper_every_min` | Reaper interval in minutes; default 10, and 0 turns it off |
+| `job_reaper_every_min` | Reaper interval in minutes; default 0, which leaves the reaper off. Set it (10 is a good start) to turn it on |
 | `job_reaper_max_hours` | Hours past which a background job under a live session is reaped too; unset or 0 leaves those alone |
 | `job_reaper_keep` | A regular expression (any case) for commands never reaped, such as dev servers and log follows; one that cannot compile stops the reaper |
 | `health_disks` | Extra local disk paths for the Machine tab; `/` is always included |

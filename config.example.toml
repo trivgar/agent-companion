@@ -20,6 +20,7 @@ app_name = "Companion"
 # Where your sessions live and where the app keeps its own files
 # claude_home = "~/.claude"
 # codex_home = "~/.codex"      # optional: show Codex plan limits from local rollout logs
+# claude_limits = false        # never send your Claude Code login token to Anthropic for your limit use
 # data_dir = "~/.local/share/agent-companion"
 # push_dir = "~/.local/share/agent-companion"   # the push key and the subscribed devices (default data_dir)
 # mergeq_land = "pr"     # the merge queue: "pr" (a pull request per branch) or "local" (fast-forward and push)
@@ -56,16 +57,17 @@ app_name = "Companion"
 # health_mem_full_pct = 92
 # health_push = false
 
-# Reap an orphaned run_in_background shell after this age.  The scan runs
-# every 10 minutes by default; set job_reaper_every_min = 0 to turn it off.
-# job_reaper_after_min = 60
+# The job reaper is off until job_reaper_every_min is set. Then the server
+# terminates an orphaned run_in_background shell past job_reaper_after_min, so
+# name anything meant to keep running (a dev server) in job_reaper_keep below.
 # job_reaper_every_min = 10
+# job_reaper_after_min = 60
 # A job under a live session is left alone unless this is set; then it is
 # reaped past this many hours too (a forgotten `until ...; do sleep 5; done`).
 # job_reaper_max_hours = 6
 # Commands never reaped: a regular expression, matched without regard to case.
 # Single quotes make it a TOML literal string, so backslashes stay as written.
-# job_reaper_keep = '# keep-running|\buvicorn\b|\bnpm\s+run\s+dev\b|\btail\s+-f\b'
+# job_reaper_keep = '# keep-running|\bhttp\.server\b|\buvicorn\b|\bnpm\s+run\s+dev\b|\btail\s+-f\b'
 # One pass from a timer of your own instead: python3 -m agent_companion.jobreaper
 # (--dry-run lists what it would stop and signals nothing).
 

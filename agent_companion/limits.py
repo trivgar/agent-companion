@@ -20,7 +20,8 @@ failure the last good answer is served and marked stale rather than retried in
 a loop. A dashboard polling every 5s must never become a source of 429s.
 
 The token is read at call time and never logged, never cached by us, and never
-returned through the API.
+returned through the API. ``claude_limits = false`` in the settings turns all
+of this off: no token is read and no call is made.
 """
 from __future__ import annotations
 
@@ -31,11 +32,21 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from . import config
+
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 BETA_HEADER = "oauth-2025-04-20"
 CACHE_NAME = "session-companion-limits.json"
 MIN_INTERVAL = 300.0          # 5 minutes between live fetches
 TIMEOUT = 6.0
+
+
+def enabled() -> bool:
+    """False when the owner set ``claude_limits`` to false, 0, no or off."""
+    value = config.get("claude_limits", True)
+    if isinstance(value, str):
+        return value.strip().lower() not in ("0", "false", "no", "off")
+    return bool(value)
 
 
 def credentials_path(home: Path) -> Path:
@@ -137,6 +148,8 @@ class LimitsCache:
             pass
 
     def get(self, now: float | None = None, force: bool = False) -> dict:
+        if not enabled():
+            return {"available": False, "reason": "off"}
         now = now or time.time()
         age = now - self._fetched_at
         if force or (age >= MIN_INTERVAL and now - self._tried_at >= MIN_INTERVAL
