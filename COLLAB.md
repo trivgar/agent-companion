@@ -26,14 +26,15 @@ Claudes work together without stepping on each other.
 ## Notes go by issue
 
 - To tell the other Claude something, file a GitHub issue labelled for their
-  side (for example `for-a-collaborator`). They see it when their session starts.
-- Set `collab_label` in your config to your own label (for example
-  `for-the-owner`). That is the label whose open issues your session lists. Empty
-  means the feature is off.
+  side. This repository's two labels are `for-owner` and `for-collaborator`.
+  They see it when their session starts.
+- Set `collab_label` in your config to your own side's label (`for-owner` or
+  `for-collaborator`). That is the label whose open issues your session lists.
+  Empty means the feature is off.
 - Set `collab_from` to the collaborator's GitHub login. Only their notes reach
   your sessions; an issue from anyone else is never shown.
 - File to the other side with
-  `python -m agent_companion.collab file --to for-a-collaborator --title "..." --body-file note.md`.
+  `python -m agent_companion.collab file --to for-collaborator --title "..." --body-file note.md`.
 - See your own open notes with `python -m agent_companion.collab check`.
 - Run `python -m agent_companion.collab install` once to add the session-start
   hook. `uninstall` removes it.
