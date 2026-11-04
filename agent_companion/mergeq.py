@@ -976,12 +976,21 @@ class Merger:
         """Entries whose pinned sha is already on the base branch are marked merged, and their branches
         returned: an entry ejected red can land inside another branch's merge, and its red would otherwise
         stay in the status with nothing wrong; a queued one that got there another way has nothing left
-        to land, and a batch of it would restart the service for nothing."""
+        to land, and a batch of it would restart the service for nothing. So is one whose every change
+        is already on the base as the same patch (git cherry): a branch rebuilt under another name lands
+        as copies with new hashes, and the pinned sha would never get there."""
         settled = []
         for e in self.store.entries():
-            if e["state"] in (QUEUED, CONFLICT, FAILED, STALE, PUSH_FAILED) and e.get("sha") \
-                    and _ok(self.repo, "merge-base", "--is-ancestor", e["sha"], self._base_ref()):
+            if e["state"] not in (QUEUED, CONFLICT, FAILED, STALE, PUSH_FAILED) or not e.get("sha"):
+                continue
+            if _ok(self.repo, "merge-base", "--is-ancestor", e["sha"], self._base_ref()):
                 self._mark(e, MERGED, f"reached {self.base_branch} outside the queue (was {e['state']})")
+                settled.append(e["branch"])
+                continue
+            cherry = git(self.repo, "cherry", self._base_ref(), e["sha"], check=False).splitlines()
+            if cherry and all(line.startswith("-") for line in cherry):
+                self._mark(e, MERGED,
+                           f"the same changes reached {self.base_branch} under other commits (was {e['state']})")
                 settled.append(e["branch"])
         return settled
 
