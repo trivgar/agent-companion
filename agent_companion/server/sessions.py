@@ -52,16 +52,33 @@ def sessions():
     p = _parts()
     rows = order(p["reader"].snapshot())
     line = clearline.get()
+    git = _git_states(p["git"], [r["cwd"] for r in rows if r.get("cwd")])
     for r in rows:
-        try:
-            g = p["git"].for_repo(r["cwd"]) if r.get("cwd") else None
-        except Exception:
-            g = None
+        g = git.get(r.get("cwd") or "")
         r["branch"] = (g or {}).get("branch", "")
         r["clear_line"] = line
         r["needs_clear"] = clearline.over(r, line)
     _add_card_data(rows)
     return rows
+
+
+def _git_states(git, cwds: list[str]) -> dict:
+    """Each folder's git state, asked at the same time. A first look shells
+    out to git, and on a Windows drive under WSL that is over a second a
+    repo: six sessions took 8.8 s, one after another, on the first
+    /api/sessions after a restart (2026-11-07). After that the stat-keyed
+    cache answers without git. A failure is None, a card without a branch."""
+    def one(cwd):
+        try:
+            return git.for_repo(cwd)
+        except Exception:
+            return None
+    todo = sorted(set(cwds))
+    if len(todo) < 2:
+        return {c: one(c) for c in todo}
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(8, len(todo))) as pool:
+        return dict(zip(todo, pool.map(one, todo)))
 
 
 def _add_card_data(rows: list[dict]) -> None:
