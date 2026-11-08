@@ -171,6 +171,14 @@ class TranscriptReader:
             if kind == "permission-mode" and rec.get("permissionMode"):
                 s.permission_mode = str(rec["permissionMode"])
                 continue
+            if (kind == "system" and rec.get("subtype") == "compact_boundary"
+                    and not rec.get("isSidechain")):
+                # A compaction shrinks the window; until the next reply, the
+                # last usage line is pre-compaction (2026-11-08: ~25k read as 489k, told to clear).
+                metadata = rec.get("compactMetadata")
+                post_tokens = metadata.get("postTokens") if isinstance(metadata, dict) else None
+                s.context_used = post_tokens if isinstance(post_tokens, int) and post_tokens >= 0 else 0
+                continue
 
             msg = rec.get("message")
             if not isinstance(msg, dict):

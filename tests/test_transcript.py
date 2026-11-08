@@ -79,6 +79,49 @@ def test_sidechain_tokens_count_but_do_not_move_context(tmp_path):
     assert r["context_used"] == 900_000
 
 
+def test_compact_boundary_resets_context_to_post_compaction_size(tmp_path):
+    p = tmp_path / "t.jsonl"
+    p.write_text(
+        _usage(i=10, o=20, cr=489_684, cw=5)
+        + _rec(type="system", subtype="compact_boundary",
+               compactMetadata={"postTokens": 24_643})
+    )
+    r = TranscriptReader().read(p)
+    assert r["context_used"] == 24_643
+    assert r["tokens"] == {
+        "input": 10, "output": 20, "cache_read": 489_684,
+        "cache_write": 5, "cache_write_1h": 0,
+    }
+
+
+def test_assistant_usage_after_compact_boundary_sets_context(tmp_path):
+    p = tmp_path / "t.jsonl"
+    p.write_text(
+        _usage(cr=489_699)
+        + _rec(type="system", subtype="compact_boundary",
+               compactMetadata={"postTokens": 24_643})
+        + _usage(i=1, cr=24, cw=3)
+    )
+    assert TranscriptReader().read(p)["context_used"] == 28
+
+
+def test_compact_boundary_without_post_tokens_clears_context(tmp_path):
+    p = tmp_path / "t.jsonl"
+    p.write_text(_usage(cr=489_699) + _rec(
+        type="system", subtype="compact_boundary", compactMetadata={}
+    ))
+    assert TranscriptReader().read(p)["context_used"] == 0
+
+
+def test_sidechain_compact_boundary_does_not_move_context(tmp_path):
+    p = tmp_path / "t.jsonl"
+    p.write_text(_usage(cr=489_699) + _rec(
+        type="system", subtype="compact_boundary", isSidechain=True,
+        compactMetadata={"postTokens": 24_643}
+    ))
+    assert TranscriptReader().read(p)["context_used"] == 489_699
+
+
 # --- typed records ---------------------------------------------------------
 
 def test_typed_records(tmp_path):
