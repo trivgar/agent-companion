@@ -52,6 +52,7 @@ CACHE_NAME = "session-companion-usage.json"
 # Bumping this discards the cache and re-seeds, so a total built under the old
 # rule never mixes with one built under the new.
 COUNTING = 2
+SEED_READERS = 8         # parallel reads for ensure_lifetime's one full pass
 SEEN_KEEP = 64           # message ids remembered per file; the repeats are adjacent
 
 TOKEN_KEYS = ("input", "output", "cache_read", "cache_write", "cache_write_1h")
@@ -87,6 +88,64 @@ def tokens_from(usage: dict) -> dict:
 def merge(into: dict, more: dict) -> None:
     for k in TOKEN_KEYS:
         into[k] = into.get(k, 0) + more.get(k, 0)
+
+
+def _read_one(job: tuple) -> bytes | None:
+    path, _entry, offset, size = job
+    try:
+        with path.open("rb") as fh:
+            fh.seek(offset)
+            return fh.read(size - offset)
+    except OSError:
+        return None
+
+
+def _read_tails(jobs: list, workers: int):
+    """(entry, bytes or None) for each job, in order. With workers > 1 the
+    reads run ahead on threads (the read releases the GIL), at most
+    workers * 2 files held at once, so 11 GB never sits in memory."""
+    if workers <= 1 or len(jobs) < 2:
+        for job in jobs:
+            yield job[1], _read_one(job)
+        return
+    from collections import deque
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        ahead: deque = deque()
+        it = iter(jobs)
+        for job in it:
+            ahead.append((job[1], pool.submit(_read_one, job)))
+            if len(ahead) >= workers * 2:
+                break
+        for job in it:
+            entry, fut = ahead.popleft()
+            yield entry, fut.result()
+            ahead.append((job[1], pool.submit(_read_one, job)))
+        while ahead:
+            entry, fut = ahead.popleft()
+            yield entry, fut.result()
+
+
+def _usage_lines(chunk: bytes):
+    """The lines of `chunk` that mention "usage", decoded, found by searching
+    the bytes instead of decoding and splitting the whole chunk. The seed pass
+    reads every transcript (11 GB, 19,188 files on 2026-11-07) and only about
+    one line in six carries usage, so decoding and splitting the rest was half
+    of its 52 s. Lines split as str.splitlines() splits them, so the count is
+    the same as before."""
+    find = chunk.find
+    i = find(b'"usage"')
+    while i != -1:
+        start = chunk.rfind(b"\n", 0, i) + 1
+        end = find(b"\n", i)
+        if end == -1:
+            end = len(chunk)
+        # splitlines() also breaks on \r, \x85, \u2028 and the rest: keep
+        # only the piece holding the match, as it did.
+        for piece in chunk[start:end].decode("utf-8", "replace").splitlines():
+            if '"usage"' in piece:
+                yield piece
+        i = find(b'"usage"', end)
 
 
 class UsageIndex:
@@ -173,9 +232,7 @@ class UsageIndex:
                 del entry["buckets"][hour]
 
     def _consume(self, entry: dict, chunk: bytes) -> None:
-        for raw in chunk.decode("utf-8", "replace").splitlines():
-            if '"usage"' not in raw:
-                continue
+        for raw in _usage_lines(chunk):
             try:
                 rec = json.loads(raw)
             except ValueError:
@@ -313,6 +370,7 @@ class UsageIndex:
             return
 
         touched = False
+        todo: list[tuple] = []
         # rglob, NOT a list of hand-written globs. This has now been wrong
         # twice for the same reason. First "*/*.jsonl" missed ordinary
         # subagents at <project>/<session>/subagents/agent-<id>.jsonl -- 280
@@ -348,12 +406,14 @@ class UsageIndex:
                 entry.update(offset=0, inode=st.st_ino, buckets={}, seen=[], life={})
             if st.st_size <= entry["offset"]:
                 continue
+            todo.append((path, entry, entry["offset"], st.st_size))
 
-            try:
-                with path.open("rb") as fh:
-                    fh.seek(entry["offset"])
-                    chunk = fh.read(st.st_size - entry["offset"])
-            except OSError:
+        # Read in parallel only for the seed pass: the poll reads a few small
+        # tails, and the seed reads every transcript (11 GB on 2026-11-07, half
+        # its time spent waiting on the disk). Consumed in walk order, so the
+        # result is the same as one at a time.
+        for entry, chunk in _read_tails(todo, SEED_READERS if full else 1):
+            if chunk is None:
                 continue
             cut = chunk.rfind(b"\n")
             if cut == -1:

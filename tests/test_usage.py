@@ -383,3 +383,29 @@ def test_a_cache_from_the_old_counting_is_rebuilt(tmp_path):
     idx = UsageIndex(home, tmp_path / "cache.json", archive_roots=())
     idx.ensure_lifetime(now=now)
     assert idx.lifetime()["tokens"]["output"] == 100
+
+
+def test_seed_reads_come_back_in_walk_order_and_whole(tmp_path):
+    """The seed pass reads on threads; the parse must see every file, whole,
+    in the order the walk found them, and a vanished file as None."""
+    from agent_companion import usage
+    jobs = []
+    for i in range(40):
+        p = tmp_path / f"{i}.jsonl"
+        p.write_bytes(b"x" * (i * 97 + 1))
+        jobs.append((p, {"i": i}, 0, p.stat().st_size))
+    jobs.append((tmp_path / "gone.jsonl", {"i": "gone"}, 0, 10))
+    for workers in (1, 8):
+        got = list(usage._read_tails(jobs, workers))
+        assert [e["i"] for e, _ in got] == list(range(40)) + ["gone"]
+        assert [len(c) for _, c in got[:40]] == [i * 97 + 1 for i in range(40)]
+        assert got[-1][1] is None
+
+
+def test_usage_lines_split_as_splitlines_did():
+    """Only the lines naming "usage", cut at the same line breaks as before."""
+    from agent_companion import usage
+    chunk = ('{"a":1}\n{"usage":1}\r\n{"b":" "}{"usage":2}\n'
+             '{"c":"\xe9"}\n{"usage":3}').encode() + b"\xff\n"
+    old = [l for l in chunk.decode("utf-8", "replace").splitlines() if '"usage"' in l]
+    assert list(usage._usage_lines(chunk)) == old
