@@ -175,6 +175,31 @@ def test_effort_confirmation_only_accepts_its_matching_dialog(monkeypatch):
     assert not chat.confirm_effort(KNOWN["ada"], "/model a", run=Pane(), sleep=lambda _: None)
 
 
+def test_model_confirmation_only_accepts_the_switch_model_dialog(monkeypatch):
+    # The picker's /model send can raise "Switch model?" (the cache warning),
+    # which no hook reports, so the phone never showed it (2026-11-09).
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    screens = {"now": "   Switch model?\n   ❯ 1. Yes, switch to Fable 5.2\n     2. No, go back\n"}
+
+    class Pane(Run):
+        def __call__(self, args, **kwargs):
+            self.calls.append(args)
+
+            class Result:
+                stdout = screens["now"] if "capture-pane" in args else "11\n"
+            return Result()
+
+    run = Pane()
+    assert chat.confirm_model(KNOWN["ada"], "/model claude-fable-5-2", run=run, sleep=lambda _: None)
+    assert run.calls[-1] == ["tmux", "send-keys", "-t", "%3", "Enter"]
+    assert not chat.confirm_model(KNOWN["ada"], "/effort max", run=Pane(), sleep=lambda _: None)
+    assert not chat.confirm_model(KNOWN["ada"], "/model x; rm -rf ~", run=Pane(), sleep=lambda _: None)
+    screens["now"] = "Change effort level?\n❯ 1. Yes, switch to max\n"
+    other = Pane()
+    assert not chat.confirm_model(KNOWN["ada"], "/model opus", run=other, sleep=lambda _: None)
+    assert not any("send-keys" in c for c in other.calls)
+
+
 def test_quick_replies_are_drafts_not_sends():
     assert chat.quick_replies("Ready to push it?") == [{"action": "say-push", "title": "Push", "words": "push"}]
     assert chat.quick_replies("Want me to update it?") == [{"action": "say-yes", "title": "Yes", "words": "yes"}]

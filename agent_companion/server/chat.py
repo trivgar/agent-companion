@@ -62,6 +62,7 @@ TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "imag
          "text/markdown": ".md"}
 FILE_ID = re.compile(r"^[0-9]{8}-[0-9a-f]{12}(\.[a-z0-9]{1,5})$")
 EFFORT_SENT = re.compile(r"/effort (low|medium|high|xhigh|max)")
+MODEL_SENT = re.compile(r"/model [A-Za-z0-9][\w.\[\]-]{0,80}")
 _SUGGESTION_CACHE: dict[str, tuple[float, str | None]] = {}
 _SUGGESTION_CACHE_SECONDS = 5
 _CLEARED: dict[str, tuple] = {}
@@ -291,13 +292,7 @@ def target_waiting(target: dict) -> bool:
     return False
 
 
-def confirm_effort(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
-                   tries: int = 12, every: float = .25) -> bool:
-    """Confirm only the effort dialog raised by this exact direct-chat send."""
-    match = EFFORT_SENT.fullmatch(str(text).strip())
-    if not match:
-        return False
-    yes = re.compile(r"❯\s*1\.\s*Yes, switch to " + match.group(1) + r"\s*$", re.M)
+def _confirm_dialog(target: dict, header: str, yes: re.Pattern, run, sleep, tries: int, every: float) -> bool:
     for _ in range(tries):
         sleep(every)
         try:
@@ -305,18 +300,40 @@ def confirm_effort(target: dict, text: str, run=subprocess.run, sleep=time.sleep
                          capture_output=True, text=True, timeout=5).stdout or ""
         except (OSError, subprocess.SubprocessError):
             return False
-        if "Change effort level?" not in screen or not yes.search(screen):
+        if header not in screen or not yes.search(screen):
             continue
         if not in_front(target["pid"], target["pane"], run=run)[0]:
             return False
         try:
-            # Deliberate: this exact effort dialog and its selected Yes line
-            # are the only prompt this worker is allowed to confirm.
+            # Deliberate: this exact dialog and its selected Yes line are the
+            # only prompts this worker is allowed to confirm.
             run(["tmux", "send-keys", "-t", target["pane"], "Enter"], check=True, timeout=5)
         except (OSError, subprocess.SubprocessError):
             return False
         return True
     return False
+
+
+def confirm_effort(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
+                   tries: int = 12, every: float = .25) -> bool:
+    """Confirm only the effort dialog raised by this exact direct-chat send."""
+    match = EFFORT_SENT.fullmatch(str(text).strip())
+    if not match:
+        return False
+    yes = re.compile(r"❯\s*1\.\s*Yes, switch to " + match.group(1) + r"\s*$", re.M)
+    return _confirm_dialog(target, "Change effort level?", yes, run, sleep, tries, every)
+
+
+def confirm_model(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
+                  tries: int = 12, every: float = .25) -> bool:
+    """Confirm only the "Switch model?" dialog a direct-chat /model send
+    raises (the cache warning). The dialog names the model by its display
+    name, not the id that was sent, so it is matched by its header and its
+    selected Yes line, within the few seconds after this send."""
+    if not MODEL_SENT.fullmatch(str(text).strip()):
+        return False
+    yes = re.compile(r"❯\s*1\.\s*Yes, switch to \S.*$", re.M)
+    return _confirm_dialog(target, "Switch model?", yes, run, sleep, tries, every)
 
 
 def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep) -> tuple[bool, str]:
@@ -897,11 +914,13 @@ def _send(body: dict) -> dict:
     else:
         ok, why = send(t, words)
     record({"at": time.time(), "to": to, "text": words, "ok": ok, "detail": why})
-    if ok and EFFORT_SENT.fullmatch(words) and "pytest" not in __import__("sys").modules:
+    confirmer = (confirm_effort if EFFORT_SENT.fullmatch(words)
+                 else confirm_model if MODEL_SENT.fullmatch(words) else None)
+    if ok and confirmer and "pytest" not in __import__("sys").modules:
         def confirm() -> None:
-            if confirm_effort(t, words):
-                record({"at": time.time(), "to": to, "text": "(effort confirmed)", "ok": True, "detail": ""})
-        threading.Thread(target=confirm, daemon=True, name="chat-effort-confirm").start()
+            if confirmer(t, words):
+                record({"at": time.time(), "to": to, "text": "(switch confirmed)", "ok": True, "detail": ""})
+        threading.Thread(target=confirm, daemon=True, name="chat-switch-confirm").start()
     return {"ok": ok, "to": to, "detail": why}
 
 
