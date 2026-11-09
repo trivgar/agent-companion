@@ -6,6 +6,10 @@ What moved, and whether your settings need anything. Newest first.
 - Prices for Claude Fable 5.2 and Mythos 5.2 ($8 / $40, cache reads $0.20 per
   million). Before this they were priced as Fable 5, with cache reads at four
   times their rate.
+- The old claude-companion names are gone: the `claude_companion` import name,
+  `CLAUDE_COMPANION_*` environment variables, and `x-claude-companion-*`
+  headers. Switch to `agent_companion`, `AGENT_COMPANION_*`, and
+  `x-agent-companion-*`.
 
 ## 2026-11-03
 - The job reaper is off by default. A server that relied on the old default

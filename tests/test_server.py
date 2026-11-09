@@ -57,6 +57,14 @@ def test_a_write_needs_json_the_owner_key_and_our_own_origin(monkeypatch):
     assert c.post("/api/x", json={}, headers={**KEY, **same}).json() == {"ok": True}
 
 
+def test_a_retired_owner_header_is_not_accepted(monkeypatch):
+    monkeypatch.setattr(server, "FEATURES", [])
+    c = _write_app()
+    same = {"origin": "http://testserver", "host": "testserver"}
+
+    assert c.post("/api/x", json={}, headers={**same, "x-claude-companion-key": OWNER}).status_code == 401
+
+
 def test_behind_the_proxy_the_forwarded_host_is_the_page(monkeypatch):
     monkeypatch.setattr(server, "FEATURES", [])
     c = _write_app()

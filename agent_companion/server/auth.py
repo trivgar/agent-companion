@@ -44,10 +44,6 @@ PAIRING_FILENAME = "pairing-codes.json"
 QUERY_KEY = "k"                      # only the one-time pairing code rides in a URL now
 HEADER_NAME = "x-agent-companion-token"     # the hook's token
 OWNER_HEADER = "x-agent-companion-key"      # the owner's key
-# Before the rename (2026-11-01) these were x-claude-companion-*; a phone app
-# built before it still sends them, so both are heard until it is rebuilt.
-LEGACY_HEADER_NAME = "x-claude-companion-token"
-LEGACY_OWNER_HEADER = "x-claude-companion-key"
 JSON_TYPE = "application/json"
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 CODE_LEN = 8
@@ -243,11 +239,11 @@ def same_origin(headers) -> bool:
 
 
 def _hook_presented(request: Request) -> str:
-    return (request.headers.get(HEADER_NAME) or request.headers.get(LEGACY_HEADER_NAME) or "").strip()
+    return (request.headers.get(HEADER_NAME) or "").strip()
 
 
 def _owner_presented(request: Request) -> str:
-    return (request.headers.get(OWNER_HEADER) or request.headers.get(LEGACY_OWNER_HEADER) or "").strip()
+    return (request.headers.get(OWNER_HEADER) or "").strip()
 
 
 def require_hook(request: Request) -> None:

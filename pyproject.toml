@@ -17,7 +17,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["agent_companion", "claude_companion", "agent_companion.server", "agent_companion.mail", "agent_companion.money", "agent_companion.fitness", "agent_companion.hooks"]
+packages = ["agent_companion", "agent_companion.server", "agent_companion.mail", "agent_companion.money", "agent_companion.fitness", "agent_companion.hooks"]
 
 [tool.setuptools.package-data]
 "agent_companion.server" = ["static/*"]

@@ -7,7 +7,7 @@
 # draft id is skipped, and a lock keeps two passes from drafting the same reply.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PY="${AGENT_COMPANION_PYTHON:-${CLAUDE_COMPANION_PYTHON:-python3}}"
+PY="${AGENT_COMPANION_PYTHON:-python3}"
 LOGDIR="${XDG_STATE_HOME:-$HOME/.local/state}/agent-companion"
 mkdir -p "$LOGDIR"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"

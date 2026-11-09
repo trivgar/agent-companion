@@ -78,11 +78,7 @@ def spawned_by_session(pid: int, session_pids: set[int], ppid_of=proc_ppid) -> b
 JOB_ENV = "AGENT_COMPANION_JOB"
 ABOUT_ENV = "AGENT_COMPANION_ABOUT"
 SILENT_ENV = "CLAUDE_TTS_SILENT"
-# Their names before the 2026-11-01 rename: sessions started before it, and
-# launchers not yet changed, still carry these.
-OLD_JOB_ENV = "CLAUDE_COMPANION_JOB"
-OLD_ABOUT_ENV = "CLAUDE_COMPANION_ABOUT"
-_JOB_KEYS = (JOB_ENV, ABOUT_ENV, OLD_JOB_ENV, OLD_ABOUT_ENV, SILENT_ENV)
+_JOB_KEYS = (JOB_ENV, ABOUT_ENV, SILENT_ENV)
 _JOB_MAX = 64                # a word for a chip, not a paragraph
 
 
@@ -90,10 +86,10 @@ def job_of(env: dict) -> tuple[str, str]:
     """(job, about) from a session's environment: ("", "") for a person's."""
     def clean(v) -> str:
         return " ".join(str(v or "").split())[:_JOB_MAX]
-    job = clean(env.get(JOB_ENV) or env.get(OLD_JOB_ENV))
+    job = clean(env.get(JOB_ENV))
     if not job and str(env.get(SILENT_ENV) or ""):
         job = "headless"
-    return job, (clean(env.get(ABOUT_ENV) or env.get(OLD_ABOUT_ENV)) if job else "")
+    return job, (clean(env.get(ABOUT_ENV)) if job else "")
 
 
 def root_of(pid: int, rows_by_pid: dict[int, dict]) -> int | None:

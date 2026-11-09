@@ -109,7 +109,7 @@ def test_reaper_signals_the_orphan_tree_and_writes_jsonl(tmp_path):
 
 
 def test_the_worker_is_off_until_the_owner_sets_an_interval(monkeypatch):
-    for name in ("AGENT_COMPANION_JOB_REAPER_EVERY_MIN", "CLAUDE_COMPANION_JOB_REAPER_EVERY_MIN"):
+    for name in ("AGENT_COMPANION_JOB_REAPER_EVERY_MIN",):
         monkeypatch.delenv(name, raising=False)
 
     assert jobreaper.every_s() == 0, "a stranger's dev server must not vanish unasked"
