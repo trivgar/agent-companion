@@ -198,6 +198,13 @@ def test_model_confirmation_only_accepts_the_switch_model_dialog(monkeypatch):
     other = Pane()
     assert not chat.confirm_model(KNOWN["ada"], "/model opus", run=other, sleep=lambda _: None)
     assert not any("send-keys" in c for c in other.calls)
+    # The same words quoted in the conversation, with the input box below:
+    # not a dialog, never confirmed.
+    screens["now"] = ("● It's Claude Code's \"Switch model?\" dialog\n   ❯ 1. Yes, switch to Fable 5.2\n"
+                      "more words\n───\n❯ \n───\n  🤖 Opus 5.5\n")
+    quoted = Pane()
+    assert not chat.confirm_model(KNOWN["ada"], "/model opus", run=quoted, sleep=lambda _: None)
+    assert not any("send-keys" in c for c in quoted.calls)
 
 
 def test_quick_replies_are_drafts_not_sends():

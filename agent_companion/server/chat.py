@@ -292,6 +292,18 @@ def target_waiting(target: dict) -> bool:
     return False
 
 
+def _dialog_open(screen: str, header: str, yes: re.Pattern) -> bool:
+    """The dialog is drawn now, at the bottom of the pane: its header in the
+    last lines, its selected Yes within the few lines under it, and no empty
+    input box after it (the box is not drawn while a dialog is up). The same
+    words quoted higher up, in the conversation, never count."""
+    lines = [ln for ln in screen.splitlines() if ln.strip()][-12:]
+    for i, ln in enumerate(lines):
+        if header in ln and any(yes.search(x) for x in lines[i + 1:i + 6]):
+            return not any(re.fullmatch(r"\s*❯\s*", x) for x in lines[i + 1:])
+    return False
+
+
 def _confirm_dialog(target: dict, header: str, yes: re.Pattern, run, sleep, tries: int, every: float) -> bool:
     for _ in range(tries):
         sleep(every)
@@ -300,7 +312,7 @@ def _confirm_dialog(target: dict, header: str, yes: re.Pattern, run, sleep, trie
                          capture_output=True, text=True, timeout=5).stdout or ""
         except (OSError, subprocess.SubprocessError):
             return False
-        if header not in screen or not yes.search(screen):
+        if not _dialog_open(screen, header, yes):
             continue
         if not in_front(target["pid"], target["pane"], run=run)[0]:
             return False
