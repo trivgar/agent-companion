@@ -2,6 +2,11 @@
 
 What moved, and whether your settings need anything. Newest first.
 
+## 2026-11-09
+- Prices for Claude Fable 5.2 and Mythos 5.2 ($8 / $40, cache reads $0.20 per
+  million). Before this they were priced as Fable 5, with cache reads at four
+  times their rate.
+
 ## 2026-11-03
 - The job reaper is off by default. A server that relied on the old default
   (every 10 minutes) stops reaping until you set `job_reaper_every_min = 10`; a
