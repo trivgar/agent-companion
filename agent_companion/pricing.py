@@ -4,7 +4,9 @@ Source: the Claude API reference (bundled `claude-api` skill, cached
 2026-06-24), re-checked 2026-09-13. The 4.5 rows were added 2026-09-16 from
 platform.claude.com/docs/en/about-claude/pricing, fetched rather than recalled
 -- billions of tokens in real use were on models this table had never heard of.
-The 5.5 rows came from the same page on 2026-10-18. Until then Opus 5.5 fell
+The 5.5 rows came from the same page on 2026-10-18, and the 5.2 rows on
+2026-11-09, release day, before which Fable 5.2 fell through to the Fable 5
+row (a quarter too much, cache reads at 4x). Until then Opus 5.5 fell
 through to the Opus 5 row by prefix (a quarter too much, and cache reads at
 2.5x), Sonnet 5.5 read cache at twice its rate, and Haiku 5.5 was unpriced.
 This file is the ONLY place rates appear.
@@ -12,7 +14,7 @@ This file is the ONLY place rates appear.
 Caching, which dominates the bill in a long agent session:
 
 * Cache reads bill at 0.1x the input rate -- except Fable 5.1 and Mythos
-  5.1 at 0.025x ($0.25/MTok), and Opus 5.5 and Sonnet 5.5 at 0.05x ($0.20 and
+  5.1 at 0.025x ($0.25/MTok), Fable 5.2 and Mythos 5.2 at 0.025x ($0.20/MTok), and Opus 5.5 and Sonnet 5.5 at 0.05x ($0.20 and
   $0.10/MTok).
 * Cache writes bill at 1.25x for the 5-minute TTL and 2x for the 1-hour TTL.
   Claude Code writes at the 1-HOUR TTL, so assuming 1.25x under-bills real
@@ -37,6 +39,8 @@ CACHE_WRITE_1H_MULTIPLIER = 2.0
 
 # model id -> (input $/MTok, output $/MTok, context window)
 RATES: dict[str, tuple[float, float, int]] = {
+    "claude-fable-5-2":  (8.00, 40.00, 1_000_000),
+    "claude-mythos-5-2": (8.00, 40.00, 1_000_000),
     "claude-fable-5-1":  (10.00, 50.00, 1_000_000),
     "claude-mythos-5-1": (10.00, 50.00, 1_000_000),
     "claude-fable-5":    (10.00, 50.00, 1_000_000),
@@ -62,6 +66,8 @@ RATES: dict[str, tuple[float, float, int]] = {
 # Models whose cache reads are not the usual 0.1x (the pricing page's
 # footnotes 1 and 2).
 CACHE_READ_MULTIPLIERS: dict[str, float] = {
+    "claude-fable-5-2":  0.025,
+    "claude-mythos-5-2": 0.025,
     "claude-fable-5-1":  0.025,
     "claude-mythos-5-1": 0.025,
     "claude-opus-5-5":   0.05,

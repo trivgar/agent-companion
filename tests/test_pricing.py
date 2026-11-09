@@ -128,3 +128,13 @@ def test_context_limits():
     assert context_limit("claude-opus-5") == 1_000_000
     assert context_limit("claude-haiku-4-5") == 200_000
     assert context_limit("unknown") == 1_000_000
+
+
+def test_fable_5_2_and_mythos_5_2_have_their_own_rows():
+    # Released 2026-11-09 at $8/$40, cache reads $0.20/MTok. Without a row,
+    # claude-fable-5-2 matched the claude-fable-5 prefix: $10/$50, reads at 0.1x.
+    for m in ("claude-fable-5-2", "claude-fable-5-2[1m]", "claude-mythos-5-2"):
+        assert is_priced(m)
+        assert round(cost_usd(m, {"input": 1_000_000}), 2) == 8.00
+        assert round(cost_usd(m, {"output": 1_000_000}), 2) == 40.00
+        assert round(cost_usd(m, {"cache_read": 1_000_000}), 2) == 0.20
