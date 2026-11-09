@@ -201,6 +201,7 @@ def test_a_question_is_in_the_window_with_its_choices_and_the_pick(tmp_path):
     ])
     (m,) = chat.conversation(f)
     assert m["role"] == "asked" and m["options"] == ["Five", "Leave"] and m["answer"] == "Five" and m["closed"]
+    assert m["answered_at"] - m["at"] == 4                 # answered at 00:05, asked at 00:01
 
 
 def test_a_message_sent_while_it_works_is_in_the_window(tmp_path):
