@@ -45,7 +45,7 @@ def speak_script() -> str:
 
 def main() -> int:
     try:
-        if os.environ.get("COMMS_JOB") or os.environ.get("AGENT_COMPANION_JOB") or os.environ.get("CLAUDE_COMPANION_JOB"):
+        if os.environ.get("COMMS_JOB") or os.environ.get("AGENT_COMPANION_JOB"):
             return 0
         payload = json.load(sys.stdin)
         msg = payload.get("last_assistant_message") if isinstance(payload, dict) else None

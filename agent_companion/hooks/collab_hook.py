@@ -11,11 +11,8 @@ from pathlib import Path
 
 
 def _env(key, default=None):
-    """AGENT_COMPANION_<KEY>, or its name before the 2026-11-01 rename. This
-    file runs as a bare script, so it cannot import the package's config."""
+    """AGENT_COMPANION_<KEY>; this bare script cannot import package config."""
     value = os.environ.get("AGENT_COMPANION_" + key)
-    if value is None:
-        value = os.environ.get("CLAUDE_COMPANION_" + key)
     return default if value is None else value
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))

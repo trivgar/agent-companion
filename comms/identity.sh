@@ -63,7 +63,7 @@ case "$cmd" in
     if [[ -n "${1:-}" ]]; then name=$(canon "$1"); [[ -n "$name" ]] && drop_name "$name"
     else drop_key "$(session_key)"; fi ;;
   get)
-    [[ -n "${COMMS_JOB:-}${AGENT_COMPANION_JOB:-}${CLAUDE_COMPANION_JOB:-}" ]] && exit 0
+    [[ -n "${COMMS_JOB:-}${AGENT_COMPANION_JOB:-}" ]] && exit 0
     key=$(session_key); name=$(mine "$key")
     if [[ -z "$name" ]]; then
       while IFS=$'\t' read -r n _; do

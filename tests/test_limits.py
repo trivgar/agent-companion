@@ -28,7 +28,7 @@ def test_claude_limits_off_reads_no_token_and_calls_nothing(monkeypatch, tmp_pat
 
 
 def test_claude_limits_is_on_by_default(monkeypatch, tmp_path):
-    for name in ("AGENT_COMPANION_CLAUDE_LIMITS", "CLAUDE_COMPANION_CLAUDE_LIMITS"):
+    for name in ("AGENT_COMPANION_CLAUDE_LIMITS",):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(limits, "fetch",
                         lambda t, url=limits.USAGE_URL: ({"five_hour": {"utilization": 3}}, ""))

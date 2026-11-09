@@ -3,7 +3,7 @@ import os
 # Never the real config: a test reads only what it sets. AGENT_COMPANION_LEAK_TERMS
 # is kept: it points the leak check at a deny list, as tests/test_leaks.py says.
 os.environ["AGENT_COMPANION_CONFIG"] = os.path.join(os.path.dirname(__file__), "no-such-config.toml")
-for k in [k for k in os.environ if k.startswith(("AGENT_COMPANION_", "CLAUDE_COMPANION_"))
+for k in [k for k in os.environ if k.startswith("AGENT_COMPANION_")
           and k not in ("AGENT_COMPANION_CONFIG", "AGENT_COMPANION_LEAK_TERMS")]:
     del os.environ[k]
 

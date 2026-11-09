@@ -40,7 +40,7 @@ def context(name: str, text: str) -> str:
 
 
 def main() -> None:
-    if os.environ.get("COMMS_JOB") or os.environ.get("AGENT_COMPANION_JOB") or os.environ.get("CLAUDE_COMPANION_JOB"):
+    if os.environ.get("COMMS_JOB") or os.environ.get("AGENT_COMPANION_JOB"):
         return
     try:
         ev = json.load(sys.stdin)

@@ -9,12 +9,9 @@ from pathlib import Path
 
 
 def env(key: str, default=None):
-    """AGENT_COMPANION_<KEY>, or the name it had before the 2026-11-01 rename,
-    CLAUDE_COMPANION_<KEY>, read at call time so a later set still counts."""
+    """AGENT_COMPANION_<KEY>, read at call time so a later set still counts."""
     key = key.upper()
     value = os.environ.get("AGENT_COMPANION_" + key)
-    if value is None:
-        value = os.environ.get("CLAUDE_COMPANION_" + key)
     return default if value is None else value
 
 

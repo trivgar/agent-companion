@@ -73,8 +73,6 @@ def build_command(allowed=(), model: str | None = None) -> list[str]:
 def build_env() -> dict:
     env = {k: os.environ[k] for k in _ENV_KEEP if k in os.environ}
     env["AGENT_COMPANION_JOB"] = "mail"
-    # Hooks written before the 2026-11-01 rename know a job by the old name only.
-    env["CLAUDE_COMPANION_JOB"] = "mail"
     return env
 
 

@@ -7,7 +7,7 @@
 # step holds no mail tool at all.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PY="${AGENT_COMPANION_PYTHON:-${CLAUDE_COMPANION_PYTHON:-python3}}"
+PY="${AGENT_COMPANION_PYTHON:-python3}"
 LOGDIR="${XDG_STATE_HOME:-$HOME/.local/state}/agent-companion"
 mkdir -p "$LOGDIR"
 LOG="$LOGDIR/mail.log"
