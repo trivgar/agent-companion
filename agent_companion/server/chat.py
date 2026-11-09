@@ -536,7 +536,8 @@ def conversation(transcript: Path, limit: int = 80, tail_bytes: int = TAIL_BYTES
     """[{role: me|agent|work|asked, at, text, tools}] oldest first, the last
     `limit`. A tail short of `limit` reads further back, doubling to
     MAX_TAIL_BYTES. `asked` is one of its questions, with `options`, the
-    `answer` ("" while it waits) and `closed` once the session has its result."""
+    `answer` ("" while it waits), `closed` once the session has its result,
+    and `answered_at`, when that result came."""
     got = _conversation(transcript, limit, tail_bytes)
     while len(got) < limit and tail_bytes < MAX_TAIL_BYTES:
         try:
@@ -598,6 +599,7 @@ def _conversation(transcript: Path, limit: int, tail_bytes: int) -> list[dict]:
                     for q in asked.get(c.get("tool_use_id") if isinstance(c, dict) else "", []):
                         q["answer"] = str(picks.get(q["text"][:500]) or "")
                         q["closed"] = True
+                        q["answered_at"] = at          # when it was answered, not asked
                 continue
             t = _prompt_text(content)
             if t:
