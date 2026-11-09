@@ -50,6 +50,7 @@ MAX_TEXT = 4000
 SUBMIT_GAP_S = 0.3
 SUBMIT_CHECK_S = 0.5
 SUBMIT_RETRIES = 2
+SUBMIT_WAIT_S = 5.0
 MAX_UPLOAD = 20 * 1024 * 1024
 MAX_UPLOAD_ENCODED = (MAX_UPLOAD * 4 + 2) // 3 + 4 * 1024
 KEEP_UPLOADS_S = 30 * 86400
@@ -337,18 +338,18 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep) -> tuple
         if target_waiting(target):
             return False, "it opened a dialog, not sent"
         run(["tmux", "send-keys", "-t", target["pane"], "Enter"], check=True, timeout=5)
-        for _ in range(SUBMIT_RETRIES):
+        # A busy session once accepted a message 0.23 s after the old 1.3 s deadline.
+        for attempt in range(int(SUBMIT_WAIT_S / SUBMIT_CHECK_S)):
             sleep(SUBMIT_CHECK_S)
             if not _still_in_box(target["pane"], line, run):
                 return True, ""
             if target_waiting(target):
                 return False, "it opened a dialog, not sent"
-            run(["tmux", "send-keys", "-t", target["pane"], "Enter"], check=True, timeout=5)
+            if attempt < SUBMIT_RETRIES:
+                run(["tmux", "send-keys", "-t", target["pane"], "Enter"], check=True, timeout=5)
     except (OSError, subprocess.SubprocessError) as exc:
         return False, f"tmux refused: {str(exc)[:80]}"
-    if _still_in_box(target["pane"], line, run):
-        return False, f"typed, but {target['name']} did not take the Enter; the words are still in its box"
-    return True, ""
+    return False, f"typed, but {target['name']} did not take the Enter; the words are still in its box"
 
 
 def stop(target: dict, run=subprocess.run) -> tuple[bool, str]:
