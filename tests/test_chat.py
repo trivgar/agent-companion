@@ -113,6 +113,24 @@ def test_words_that_never_submit_say_so(monkeypatch):
     assert sum(c[-1] == "Enter" for c in run.calls) == 1 + chat.SUBMIT_RETRIES
 
 
+def test_words_clear_after_five_looks_are_sent(monkeypatch):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    run = Screen("two board posts", stuck=5)
+    ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=lambda s: None)
+    assert ok, why
+    assert sum(c[-1] == "Enter" for c in run.calls) == 1 + chat.SUBMIT_RETRIES
+
+
+def test_words_that_never_clear_wait_for_every_look(monkeypatch):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    looks = int(chat.SUBMIT_WAIT_S / chat.SUBMIT_CHECK_S)
+    run = Screen("two board posts", stuck=looks)
+    ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=lambda s: None)
+    assert not ok and "still in its box" in why
+    assert run.seen == looks
+    assert sum(c[-1] == "Enter" for c in run.calls) == 1 + chat.SUBMIT_RETRIES
+
+
 def test_nothing_is_typed_when_the_session_is_not_in_front(monkeypatch):
     monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "99"])   # someone else in front
     run = Run()
