@@ -5,7 +5,11 @@ An orphan, a snapshot shell whose Claude owner has gone, is stuck once it is
 and left alone, unless ``job_reaper_max_hours`` is set: then it is stuck past
 that age too (a forgotten ``until ...; do sleep 5; done`` waiter runs for
 days). A command matching ``job_reaper_keep``, meant to run until someone stops
-it, is never stuck. Each job is judged again before every signal pass, and
+it, is never stuck. A test runner's worker left behind when its runner died (a
+``timeout`` or a ``| head`` that ends the runner first) is no snapshot shell
+and holds its memory until someone notices: once ``job_reaper_orphans`` names
+such commands, one whose parent is pid 1 is stuck past
+``job_reaper_orphan_min`` (15 by default). Each job is judged again before every signal pass, and
 every pid's identity checked, so a recycled pid or a job that stopped being
 stuck is never signalled. ``python3 -m agent_companion.jobreaper --dry-run``
 lists what a pass would stop and signals nothing.
@@ -32,6 +36,7 @@ from . import bgjobs, config
 
 DEFAULT_EVERY_MIN = 0             # off unless the owner sets job_reaper_every_min
 DEFAULT_AFTER_MIN = 60
+DEFAULT_ORPHAN_MIN = 15
 GRACE_S = 10.0
 LOG_NAME = "job-reaper.jsonl"
 
@@ -67,16 +72,32 @@ def max_s() -> int:
     return int(hours * 3600) if math.isfinite(hours) and hours > 0 else 0
 
 
+def orphan_s() -> int:
+    """How old an orphaned worker (``job_reaper_orphans``) may grow."""
+    return _minutes("job_reaper_orphan_min", DEFAULT_ORPHAN_MIN) * 60
+
+
+def _pattern(key: str) -> re.Pattern | None:
+    raw = config.get(key, "")
+    if raw is None or raw == "":
+        return None
+    if not isinstance(raw, str):
+        raise TypeError(f"{key} must be text")
+    return re.compile(raw, re.IGNORECASE)
+
+
+def orphan_pattern() -> re.Pattern | None:
+    """``job_reaper_orphans``: commands of test-runner workers (vitest, jest)
+    to stop once orphaned, matched case-insensitively against the whole
+    command line. None, the default, stops none."""
+    return _pattern("job_reaper_orphans")
+
+
 def keep_pattern() -> re.Pattern | None:
     """``job_reaper_keep``: commands never reaped, matched case-insensitively
     against the whole command before any redaction. None when unset. Raises
     re.error, or TypeError for a setting that is not text."""
-    raw = config.get("job_reaper_keep", "")
-    if raw is None or raw == "":
-        return None
-    if not isinstance(raw, str):
-        raise TypeError("job_reaper_keep must be text")
-    return re.compile(raw, re.IGNORECASE)
+    return _pattern("job_reaper_keep")
 
 
 def problem() -> str:
@@ -86,6 +107,10 @@ def problem() -> str:
         keep_pattern()
     except (re.error, TypeError) as exc:
         return f"job_reaper_keep is not a valid pattern ({exc}); nothing is reaped"
+    try:
+        orphan_pattern()
+    except (re.error, TypeError) as exc:
+        return f"job_reaper_orphans is not a valid pattern ({exc}); nothing is reaped"
     return ""
 
 
@@ -93,16 +118,18 @@ class _Rules(NamedTuple):
     after_s: int
     max_s: int
     keep: re.Pattern | None
+    orphans: re.Pattern | None = None
+    orphan_s: int = DEFAULT_ORPHAN_MIN * 60
 
 
 def _rules(minimum_age_s: int | None = None) -> _Rules | None:
     """One pass's rules, or None while ``problem()`` says why."""
     try:
-        keep = keep_pattern()
+        keep, orphans = keep_pattern(), orphan_pattern()
     except (re.error, TypeError):
         return None
     after = after_s() if minimum_age_s is None else max(0, int(minimum_age_s))
-    return _Rules(after, max_s(), keep)
+    return _Rules(after, max_s(), keep, orphans, orphan_s())
 
 
 def _span(seconds: int) -> str:
@@ -172,7 +199,7 @@ def _judge(proc: str, pid: int, now: float, boot: float | None, ticks: int,
     """The stuck row for one process, or None when it is not a stuck job."""
     candidate = _snapshot(proc, pid)
     if not candidate:
-        return None
+        return _judge_worker(proc, pid, now, boot, ticks, rules)
     parent, started, command = candidate
     # A nested shell belongs to the outer snapshot-shell job.
     if bgjobs.is_snapshot_shell(bgjobs.argv(proc, parent)):
@@ -193,6 +220,30 @@ def _judge(proc: str, pid: int, now: float, boot: float | None, ticks: int,
         why = f"orphaned, over {_span(rules.after_s)}"
     return {"pid": pid, "ppid": parent, "start_ticks": started, "age_s": age,
             "cmd": bgjobs.command_of(command, 160), "why": why}
+
+
+def _judge_worker(proc: str, pid: int, now: float, boot: float | None, ticks: int,
+                  rules: _Rules) -> dict | None:
+    """An orphaned test-runner worker: parent pid 1, command matching
+    ``job_reaper_orphans`` and not ``job_reaper_keep``, older than
+    ``job_reaper_orphan_min``. Its runner is gone, so nobody reads it."""
+    if rules.orphans is None:
+        return None
+    details = bgjobs.stat(proc, pid)
+    if not details or details[0] != 1:
+        return None
+    parent, started = details
+    command = bgjobs.argv(proc, pid)
+    line = " ".join(command)
+    if not line or not rules.orphans.search(line) or is_claude(proc, pid):
+        return None
+    if rules.keep and rules.keep.search(line):
+        return None
+    age = bgjobs._age(started, boot, now, ticks)
+    if age is None or age < rules.orphan_s:
+        return None
+    return {"pid": pid, "ppid": parent, "start_ticks": started, "age_s": age,
+            "cmd": line[:160], "why": f"orphaned worker, over {_span(rules.orphan_s)}"}
 
 
 def stuck(proc: str = "/proc", now: float | None = None,

@@ -68,6 +68,11 @@ app_name = "Companion"
 # Commands never reaped: a regular expression, matched without regard to case.
 # Single quotes make it a TOML literal string, so backslashes stay as written.
 # job_reaper_keep = '# keep-running|\bhttp\.server\b|\buvicorn\b|\bnpm\s+run\s+dev\b|\btail\s+-f\b'
+# Test-runner workers left running after their runner died (a timeout, or a
+# "| head" that ends the runner first) hold their memory until stopped. Name
+# them here to stop them once orphaned (parent pid 1) past job_reaper_orphan_min.
+# job_reaper_orphans = '^node \(vitest|jest-worker'
+# job_reaper_orphan_min = 15
 # One pass from a timer of your own instead: python3 -m agent_companion.jobreaper
 # (--dry-run lists what it would stop and signals nothing).
 
