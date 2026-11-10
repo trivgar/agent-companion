@@ -22,12 +22,14 @@
 
   function render(data, message) {
     const projects = Array.isArray(data.projects) ? data.projects : [];
+    const launchers = Array.isArray(data.launchers) ? data.launchers : [];
     const options = projects.map(project => `<option value="${esc(project.key)}"${project.available ? '' : ' disabled'}>${esc(project.label)}${project.available ? '' : ` (${esc(project.reason || 'Unavailable')})`}</option>`).join('');
     sheet.innerHTML = `<div class="new-session-sheet" role="dialog" aria-modal="true" aria-labelledby="new-session-title">
       <form class="new-session-form"><div class="new-session-head"><h2 id="new-session-title">New session</h2><button type="button" class="act" data-new-session-close>Close</button></div>
       <label>Project<select name="project" required>${options}</select></label>
       <p class="faint" data-new-session-note></p>
-      ${data.default_model ? `<p class="faint">Model: ${esc(data.default_model)}</p>` : ''}
+      ${launchers.length ? `<label>Start with<select name="launcher"><option value="">Claude${data.default_model ? ` (${esc(data.default_model)})` : ''}</option>${launchers.map(l => `<option value="${esc(l.key)}">${esc(l.label)}</option>`).join('')}</select></label>`
+        : data.default_model ? `<p class="faint">Model: ${esc(data.default_model)}</p>` : ''}
       <label>First message <span class="faint">(optional)</span><textarea name="message" rows="4" maxlength="4000"></textarea></label>
       <p class="new-session-result" role="status">${esc(message || '')}</p>
       <button class="act primary" type="submit" ${projects.some(p => p.available) ? '' : ' disabled'}>Start Claude</button></form></div>`;
@@ -49,7 +51,9 @@
     const button = form.querySelector('button[type=submit]');
     button.disabled = true;
     try {
-      const result = await CC.post('/api/newsession', {project: form.project.value, message: form.message.value});
+      const body = {project: form.project.value, message: form.message.value};
+      if (form.launcher && form.launcher.value) body.launcher = form.launcher.value;
+      const result = await CC.post('/api/newsession', body);
       render({projects: [], default_model: ''}, `Started ${result.tmux}.`);
     } catch (error) {
       button.disabled = false;

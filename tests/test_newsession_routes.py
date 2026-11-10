@@ -65,7 +65,7 @@ def test_the_projects_route_lists_keys_labels_and_who_is_there_but_never_a_path(
     assert client.get("/api/newsession/projects", headers={"x-agent-companion-token": TOKEN}).status_code == 401
     r = client.get("/api/newsession/projects", headers=KEY)
     assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
-    assert r.json() == {"ok": True, "default_model": "sonnet", "projects": [
+    assert r.json() == {"ok": True, "default_model": "sonnet", "launchers": [], "projects": [
         {"key": "site", "label": "Site", "sessions": [{"speaker": "Ada", "pid": 21}], "note": "Ada is in Site",
          "available": True, "reason": ""},
         {"key": "gone", "label": "Gone", "sessions": [], "note": "", "available": False,
@@ -165,3 +165,46 @@ def test_start_with_no_claude_is_a_500_in_words(client, site, monkeypatch):
     e = _log(site)[-1]
     assert e["ok"] is False and e["detail"] == "no claude process within 12 s"
     assert "secret plan" not in json.dumps(e) and "command not found" not in json.dumps(e)
+
+
+def _with_launcher(site, monkeypatch):
+    cfg = site.parent / "config.toml"
+    cfg.write_text(cfg.read_text().replace(
+        '[new_session]\ndefault_model = "sonnet"\n',
+        '[new_session]\ndefault_model = "sonnet"\n'
+        '[[new_session.launchers]]\nkey = "grok"\nlabel = "Grok 4.7"\n'
+        'program = "/home/me/bin/claude-other"\nmodel = "x-ai/grok-4.7"\n'))
+
+
+def test_launchers_are_listed_by_key_and_label_never_the_program(client, site, monkeypatch):
+    _with_launcher(site, monkeypatch)
+    r = client.get("/api/newsession/projects", headers=KEY)
+    assert r.json()["launchers"] == [{"key": "grok", "label": "Grok 4.7"}]
+    assert "claude-other" not in r.text
+
+
+def test_a_start_with_a_launcher_passes_its_row_and_logs_its_key(client, site, monkeypatch):
+    _with_launcher(site, monkeypatch)
+    got = []
+
+    def fake(proj, message, launcher=None):
+        got.append(launcher)
+        return {"ok": True, "status": 200, "tmux": "claude-site", "pid": 9, "detail": "", "log": "started"}
+    monkeypatch.setattr(ns, "launch", fake)
+    assert client.post("/api/newsession", json={"project": "site", "launcher": "grok"},
+                       headers=WRITE).status_code == 200
+    assert got[0]["program"] == "/home/me/bin/claude-other" and got[0]["model"] == "x-ai/grok-4.7"
+    e = _log(site)[-1]
+    assert e["launcher"] == "grok" and e["text"] == "[new session: site, grok]"
+    # "" is plain claude
+    assert client.post("/api/newsession", json={"project": "site", "launcher": ""},
+                       headers=WRITE).status_code == 200
+    assert got[-1] is None
+
+
+@pytest.mark.parametrize("bad", ["nope", "/bin/sh", 3, ["grok"]])
+def test_an_unknown_launcher_starts_nothing(client, site, monkeypatch, bad):
+    _with_launcher(site, monkeypatch)
+    monkeypatch.setattr(ns, "launch", lambda *a, **k: pytest.fail("launched"))
+    r = client.post("/api/newsession", json={"project": "site", "launcher": bad}, headers=WRITE)
+    assert r.status_code == 400 and r.json()["detail"] == "not a configured launcher"

@@ -5,7 +5,12 @@ The browser sends a project's key, never a path, so a configured folder is the
 only place a start can happen. A row's ``key`` and ``label`` default to its
 name, and its tmux ``prefix`` to a tmux-safe form of the name.
 ``[new_session]`` adds ``claude_args``, words every start passes to claude
-(none by default), and ``default_model``.
+(none by default), ``default_model``, and ``launchers``: other ways to start a
+session the page may offer, each ``{key, label, program, model}``. A launcher
+runs ``program`` (a wrapper on this machine, one word, never shell) in place
+of ``claude`` with its own ``--model``, for example Claude Code pointed at
+another provider by a script that sets its environment and execs claude. The
+browser sends a launcher's key, never a program; no key is plain claude.
 
 The command is typed into the new pane's own shell, as a restore does: the
 login shell's PATH and profile apply, and the pane outlives claude, so a start
@@ -51,6 +56,48 @@ def default_model() -> str:
     """``[new_session].default_model``, or "" for Claude Code's own default."""
     model = _table().get("default_model")
     return model.strip()[:120] if isinstance(model, str) else ""
+
+
+MAX_LAUNCHERS = 8
+_PROGRAM = re.compile(r"[A-Za-z0-9_~./+-]{1,200}")
+
+
+def launchers() -> tuple[dict, ...]:
+    """``[[new_session.launchers]]`` rows as ``{key, label, program, model}``,
+    each key once. A row without a key or a one-word program is skipped:
+    the program is typed into a shell, so nothing in it may be shell."""
+    rows = _table().get("launchers")
+    if not isinstance(rows, list):
+        return ()
+    out, keys = [], set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        key = " ".join(str(row.get("key") or "").split())[:40]
+        program = str(row.get("program") or "").strip()
+        program = os.path.expanduser(program) if program.startswith("~/") else program
+        model = row.get("model")
+        model = model.strip()[:120] if isinstance(model, str) else ""
+        if not key or key.casefold() in keys or not _PROGRAM.fullmatch(program) or program.startswith("-"):
+            continue
+        keys.add(key.casefold())
+        label = " ".join(str(row.get("label") or "").split())[:60] or key
+        out.append({"key": key, "label": label, "program": program, "model": model})
+        if len(out) >= MAX_LAUNCHERS:
+            break
+    return tuple(out)
+
+
+def launcher(key) -> dict | None:
+    """The configured launcher for `key` (exact), else None."""
+    if not isinstance(key, str):
+        return None
+    return next((l for l in launchers() if l["key"] == key), None)
+
+
+def launcher_listing() -> list[dict]:
+    """What the page may show: key and label only, never the program."""
+    return [{"key": l["key"], "label": l["label"]} for l in launchers()]
 
 
 def claude_args() -> list[str]:
@@ -124,11 +171,12 @@ def tmux_name(prefix: str, taken: set[str]) -> str:
     return f"{prefix}-{n}"
 
 
-def command(name: str, message: str, args: list[str] | None = None, model: str = "") -> str:
+def command(name: str, message: str, args: list[str] | None = None, model: str = "",
+            program: str = "claude") -> str:
     """The line typed into the new pane. Every argument quoted, so the message
     reaches claude as one argument and nothing in it is shell. The session is
-    named after its tmux session."""
-    parts = ["claude", *(shlex.quote(a) for a in args or ())]
+    named after its tmux session. `program` is a launcher's, else claude."""
+    parts = [shlex.quote(program), *(shlex.quote(a) for a in args or ())]
     if model:
         parts += ["--model", shlex.quote(model)]
     parts += ["--name", shlex.quote(name)]
@@ -259,11 +307,12 @@ def _new_session(run, tmux: str, name: str, cwd: str) -> None:
     run(plain, check=True, capture_output=True, text=True, timeout=15)
 
 
-def launch(proj: dict, message: str, run=None, find=None) -> dict:
+def launch(proj: dict, message: str, run=None, find=None, launcher: dict | None = None) -> dict:
     """Start claude in a new tmux session in proj's folder and say so only
     once its process is seen in that pane. Returns {ok, status, tmux, pid,
     detail, log}: `detail` is for the page and may quote the pane; `log` is
-    safe to record."""
+    safe to record. A `launcher` row runs its program and model instead; its
+    program must exec claude, since the start counts only once claude runs."""
     run = run or RUN
     if run is _REAL_RUN and "pytest" in sys.modules:
         return _result(False, 503, "", "sessions are not started under tests", "refused under pytest")
@@ -285,7 +334,11 @@ def launch(proj: dict, message: str, run=None, find=None) -> dict:
             _new_session(run, tmux, name, cwd)
             tty = run([tmux, "display-message", "-p", "-t", target, "#{pane_tty}"],
                       check=True, capture_output=True, text=True, timeout=5).stdout.strip()
-            line = command(name, message, claude_args(), default_model())
+            if launcher:
+                line = command(name, message, claude_args(), launcher.get("model") or "",
+                               launcher.get("program") or "claude")
+            else:
+                line = command(name, message, claude_args(), default_model())
             run([tmux, "send-keys", "-t", target, "-l", "--", line], check=True, timeout=5)
             run([tmux, "send-keys", "-t", target, "Enter"], check=True, timeout=5)
         except (OSError, subprocess.SubprocessError) as exc:
@@ -303,10 +356,13 @@ def launch(proj: dict, message: str, run=None, find=None) -> dict:
 
 
 def log_entry(who: str, key: str, name: str, ok: bool, detail: str, message_len: int,
-              now: float | None = None) -> dict:
+              now: float | None = None, launcher: str = "") -> dict:
     """One line for the chat log (``server.chat.record``): the message's
     length, never its words. `to` and `text` are what the chat thread reads
-    on every line."""
-    return {"at": time.time() if now is None else now, "to": name or "new session",
-            "text": f"[new session: {key}]", "ok": ok, "detail": detail, "who": who,
-            "project": key, "tmux": name, "message_len": message_len}
+    on every line. A launcher start names its key."""
+    e = {"at": time.time() if now is None else now, "to": name or "new session",
+         "text": f"[new session: {key}" + (f", {launcher}]" if launcher else "]"), "ok": ok, "detail": detail,
+         "who": who, "project": key, "tmux": name, "message_len": message_len}
+    if launcher:
+        e["launcher"] = launcher
+    return e

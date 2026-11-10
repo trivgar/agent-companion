@@ -338,3 +338,30 @@ def test_the_log_line_reads_back_in_the_chat_thread(tmp_path):
     f = tmp_path / "chat.jsonl"
     chat.record(ns.log_entry("ada", "site", "claude-site", False, "x", 0, now=5.0), f)
     assert chat.thread({}, tmp_path, path=f)[0]["text"] == "[new session: site]"
+
+
+def test_launcher_rows_need_a_key_and_a_one_word_program(tmp_path, monkeypatch):
+    _settings(tmp_path, monkeypatch,
+              '[new_session]\n'
+              '[[new_session.launchers]]\nkey = "grok"\nlabel = "Grok"\nprogram = "~/bin/claude-or"\nmodel = " x-ai/grok-4.7 "\n'
+              '[[new_session.launchers]]\nkey = "GROK"\nprogram = "claude"\n'
+              '[[new_session.launchers]]\nkey = "evil"\nprogram = "claude; reboot"\n'
+              '[[new_session.launchers]]\nkey = "flag"\nprogram = "-x"\n'
+              '[[new_session.launchers]]\nprogram = "claude"\n'
+              '[[new_session.launchers]]\nkey = "plain"\nprogram = "claude"\n')
+    assert ns.launchers() == (
+        {"key": "grok", "label": "Grok", "program": str(Path("~/bin/claude-or").expanduser()), "model": "x-ai/grok-4.7"},
+        {"key": "plain", "label": "plain", "program": "claude", "model": ""})
+    assert ns.launcher("grok")["model"] == "x-ai/grok-4.7"
+    assert ns.launcher("Grok") is None and ns.launcher(None) is None
+    assert ns.launcher_listing() == [{"key": "grok", "label": "Grok"}, {"key": "plain", "label": "plain"}]
+
+
+def test_a_launch_with_a_launcher_types_its_program_and_model(tmp_path, monkeypatch, clock, tools):
+    _settings(tmp_path, monkeypatch, '[new_session]\ndefault_model = "sonnet"\n')
+    run = FakeTmux()
+    how = {"key": "grok", "label": "Grok", "program": "/home/me/bin/claude-or", "model": "x-ai/grok-4.7"}
+    r = ns.launch(_proj(tmp_path), "hi", run=run, find=lambda cwd, tty: 5, launcher=how)
+    assert r["ok"]
+    c = [c for c in run.call("send-keys") if "-l" in c][0]
+    assert shlex.split(c[-1]) == ["/home/me/bin/claude-or", "--model", "x-ai/grok-4.7", "--name", "claude-site", "hi"]
