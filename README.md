@@ -500,7 +500,7 @@ hooks run outside any server's process. The server's own settings
 | `specs_seen_file` | Where the spec push remembers what it announced; default `<data_dir>/specs-seen.json` |
 | `files_author_name`, `files_author_email` | Who a Files save commits as (a repository's own `user.email` wins); default git's own identity |
 | `files_log` | One line per Files save; default `<data_dir>/files.jsonl` |
-| `[new_session]` | New session's `default_model`, and `claude_args`: words every start passes to claude, such as a permission mode (an older `projects` list here is still read) |
+| `[new_session]` | New session's `default_model`, `claude_args`: words every start passes to claude, such as a permission mode, and `launchers`: other programs and models the sheet offers (an older `projects` list here is still read) |
 
 ### Helpers and background jobs
 

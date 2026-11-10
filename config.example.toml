@@ -160,3 +160,12 @@ app_name = "Companion"
 # [new_session]
 # default_model = "sonnet"
 # claude_args = ["--permission-mode", "acceptEdits"]
+#
+# Other ways to start, offered on the sheet as "Start with". `program` runs in
+# place of claude (one word, no shell; it must exec claude, for example a
+# script that points Claude Code at another provider), with its own model.
+# [[new_session.launchers]]
+# key = "other"
+# label = "Other provider"
+# program = "~/bin/claude-other"
+# model = "provider/model-name"

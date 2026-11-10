@@ -36,7 +36,8 @@ def _who(request: Request) -> str:
 @router.get("/api/newsession/projects", dependencies=[Depends(auth.require_token)])
 def projects():
     return JSONResponse({"ok": True, "projects": newsession.listing(_rows()),
-                         "default_model": newsession.default_model()}, headers=_NOSTORE)
+                         "default_model": newsession.default_model(),
+                         "launchers": newsession.launcher_listing()}, headers=_NOSTORE)
 
 
 @router.post("/api/newsession", dependencies=[Depends(auth.require_write)])
@@ -60,7 +61,17 @@ def start(request: Request, body: dict = Body(default={})):
     if why:
         chat.record(newsession.log_entry(who, proj["key"], "", False, why, n))
         return JSONResponse({"ok": False, "detail": why}, status_code=400)
-    r = newsession.launch(proj, message)
-    chat.record(newsession.log_entry(who, proj["key"], r.get("tmux") or "", bool(r.get("ok")), r.get("log") or "", n))
+    # Absent or "" is plain claude; anything else must be a configured key.
+    lkey = body.get("launcher")
+    how = None
+    if lkey not in (None, ""):
+        how = newsession.launcher(lkey)
+        if not how:
+            why = "not a configured launcher"
+            chat.record(newsession.log_entry(who, proj["key"], "", False, why, n))
+            return JSONResponse({"ok": False, "detail": why}, status_code=400)
+    r = newsession.launch(proj, message, launcher=how) if how else newsession.launch(proj, message)
+    chat.record(newsession.log_entry(who, proj["key"], r.get("tmux") or "", bool(r.get("ok")), r.get("log") or "", n,
+                                     launcher=how["key"] if how else ""))
     return JSONResponse({"ok": bool(r.get("ok")), "tmux": r.get("tmux") or "", "pid": r.get("pid"),
                          "detail": r.get("detail") or ""}, status_code=int(r.get("status") or 500))
