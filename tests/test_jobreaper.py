@@ -285,3 +285,49 @@ def test_it_runs_as_a_module():
                          capture_output=True, text=True, timeout=60)
     assert out.returncode == 0
     assert out.stdout.strip() == "usage: python3 -m agent_companion.jobreaper [--dry-run]"
+
+
+WORKERS = r"^node \(vitest|jest-worker"
+
+
+def test_an_orphaned_test_worker_is_stuck_past_its_minutes_and_only_then(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_JOB_REAPER_ORPHANS", WORKERS)
+    monkeypatch.setenv("AGENT_COMPANION_JOB_REAPER_ORPHAN_MIN", "15")
+    proc, add = _proc(tmp_path)
+    _session(add)
+    add(300, 1, _start(3 * HOUR), ["node (vitest 25)"], "node")          # orphaned, old: stuck
+    add(301, 1, _start(5 * 60), ["node (vitest 3)"], "node")             # orphaned, young
+    add(302, 100, _start(3 * HOUR), ["node (vitest 4)"], "node")         # its runner (here claude) lives
+    add(303, 1, _start(3 * HOUR), ["node", "server.js"], "node")         # a daemon, no match
+    add(304, 1, _start(3 * HOUR), ["node (vitest 9) # keep-running"], "node")
+    monkeypatch.setenv("AGENT_COMPANION_JOB_REAPER_KEEP", KEEP)
+    rows = jobreaper.stuck(str(proc), now=NOW)
+    assert [(r["pid"], r["why"]) for r in rows] == [(300, "orphaned worker, over 15 min")]
+
+
+def test_orphaned_workers_are_left_alone_until_the_owner_names_them(tmp_path, monkeypatch):
+    monkeypatch.delenv("AGENT_COMPANION_JOB_REAPER_ORPHANS", raising=False)
+    proc, add = _proc(tmp_path)
+    add(300, 1, _start(3 * HOUR), ["node (vitest 25)"], "node")
+    assert jobreaper.stuck(str(proc), now=NOW) == []
+
+
+def test_an_orphaned_worker_and_its_children_are_reaped_and_logged(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_JOB_REAPER_ORPHANS", WORKERS)
+    proc, add = _proc(tmp_path)
+    add(300, 1, _start(HOUR), ["node (vitest 25)"], "node")
+    add(301, 300, _start(HOUR), ["esbuild", "--service"], "esbuild")
+    sent = []
+    rows = jobreaper.reap(str(proc), tmp_path / "data", now=NOW,
+                          signal_fn=lambda pid, sig: sent.append((pid, sig)), sleep_fn=lambda _: None)
+    assert [r["pid"] for r in rows] == [300]
+    assert sent == [(301, signal.SIGTERM), (300, signal.SIGTERM), (301, signal.SIGKILL), (300, signal.SIGKILL)]
+    assert json.loads((tmp_path / "data" / jobreaper.LOG_NAME).read_text())["why"] == "orphaned worker, over 15 min"
+
+
+def test_an_orphans_pattern_that_cannot_be_read_reaps_nothing(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_JOB_REAPER_ORPHANS", "(")
+    proc, add = _proc(tmp_path)
+    add(201, 1, 100, _shell(), "bash")
+    assert jobreaper.stuck(str(proc), now=5000, minimum_age_s=1) == []
+    assert "job_reaper_orphans" in jobreaper.problem()
