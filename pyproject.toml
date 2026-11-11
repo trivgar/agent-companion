@@ -11,6 +11,7 @@ fcm = ["google-auth"]
 app = ["fastapi>=0.110", "uvicorn>=0.29"]
 test = ["pytest", "httpx", "playwright"]
 home_assistant = ["websockets>=12"]
+heic = ["pillow-heif"]
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -2,6 +2,12 @@
 
 What moved, and whether your settings need anything. Newest first.
 
+## 2026-11-11
+- Chat uploads take HEIC and HEIF photos, converted to JPEG with location and
+  every other tag but the capture time removed (the colour profile is kept);
+  this needs `pip install pillow-heif` (the `heic` extra), and without it the
+  refusal says so.
+
 ## 2026-11-09
 - Prices for Claude Fable 5.2 and Mythos 5.2 ($8 / $40, cache reads $0.20 per
   million). Before this they were priced as Fable 5, with cache reads at four
