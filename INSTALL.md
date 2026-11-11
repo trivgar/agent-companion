@@ -90,6 +90,10 @@ python3 -m venv .venv
 .venv/bin/python -c "import fastapi, uvicorn, agent_companion; print('ok')"
 ```
 
+To accept HEIC and HEIF photos in chat, add the `heic` extra to the install
+command. Chat converts them to JPEG with their location removed; without that
+extra, it refuses them with a plain message.
+
 The repository is public. You do not need `gh auth login` to clone it.
 
 ### 4. Start the dashboard and pair a browser

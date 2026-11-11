@@ -1,5 +1,7 @@
 """The full direct-chat helpers behind the /api/cave contract."""
+import io
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -93,6 +95,134 @@ def test_an_attachment_is_private_and_found_only_by_its_id(tmp_path):
     assert oct(path.stat().st_mode & 0o777) == "0o600"
     with pytest.raises(ValueError):
         chat.save_upload(b"x", "text/html", root=tmp_path)
+
+
+def test_a_heic_attachment_is_saved_as_a_jpeg(tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    from PIL import Image
+    monkeypatch.setattr(chat, "_open_heic", lambda data: Image.new("RGB", (2, 1), "red"))
+
+    path = chat.save_upload(b"heic", "image/heic", root=tmp_path, now=1)
+
+    assert path.suffix == ".jpg"
+    assert path.read_bytes().startswith(b"\xff\xd8")
+
+
+def test_a_converted_heic_keeps_its_capture_time_but_not_its_gps(tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    from PIL import Image
+    capture = "2040:02:03 04:05:06"
+    source = Image.new("RGB", (4, 2), "red")
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    exif[0x8769] = {0x9003: capture}
+    exif[0x8825] = {1: "N", 2: (1.0, 2.0, 3.0)}
+    encoded = io.BytesIO()
+    source.save(encoded, "JPEG", exif=exif.tobytes())
+    fake = Image.open(io.BytesIO(encoded.getvalue()))
+    fake.load()
+    monkeypatch.setattr(chat, "_open_heic", lambda data: fake)
+
+    path = chat.save_upload(b"heic", "image/heic", root=tmp_path, now=1)
+
+    with Image.open(path) as converted:
+        out_exif = converted.getexif()
+        gps = out_exif.get_ifd(0x8825) if 0x8825 in out_exif else {}
+        original = out_exif.get_ifd(0x8769).get(0x9003) if 0x8769 in out_exif else None
+        assert converted.size == (2, 4)
+        assert not gps
+        assert out_exif.get(0x0132) == capture or original == capture
+        # The capture time and nothing else: no orientation left to turn it twice, no GPS pointer.
+        assert set(out_exif) <= {0x0132, 0x8769}, dict(out_exif)
+        assert set(out_exif.get_ifd(0x8769)) <= {0x9003}
+
+
+def test_a_converted_heic_keeps_its_colour_profile_and_drops_its_xmp(tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    from PIL import Image
+    fake = Image.new("RGB", (2, 1), "red")
+    fake.info["icc_profile"] = b"a colour profile"
+    fake.info["xmp"] = b"<x:xmpmeta>where it was taken</x:xmpmeta>"
+    fake.info["comment"] = b"a note from the phone"
+    monkeypatch.setattr(chat, "_open_heic", lambda data: fake)
+
+    path = chat.save_upload(b"heic", "image/heic", root=tmp_path, now=1)
+
+    raw = path.read_bytes()
+    assert b"where it was taken" not in raw and b"a note from the phone" not in raw
+    with Image.open(path) as converted:
+        assert converted.info.get("icc_profile") == b"a colour profile"
+        assert not converted.getexif()
+
+
+@pytest.mark.parametrize("content_type", ["", "application/octet-stream"])
+def test_unknown_heif_types_are_converted_but_other_unknown_types_are_refused(tmp_path, monkeypatch, content_type):
+    pytest.importorskip("PIL")
+    from PIL import Image
+    monkeypatch.setattr(chat, "_open_heic", lambda data: Image.new("RGB", (2, 1), "red"))
+    heif = b"\x00\x00\x00\x18ftypheicmore"
+
+    path = chat.save_upload(heif, content_type, root=tmp_path, now=1)
+
+    assert path.suffix == ".jpg" and path.read_bytes().startswith(b"\xff\xd8")
+    with pytest.raises(ValueError, match="application/octet-stream is not something an agent can open"):
+        chat.save_upload(b"not a HEIF", "application/octet-stream", root=tmp_path)
+
+
+def test_a_missing_heic_decoder_says_how_to_install_it(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "pillow_heif", None)
+
+    with pytest.raises(ValueError) as exc:
+        chat.save_upload(b"heic", "image/heic", root=tmp_path)
+
+    assert str(exc.value) == "HEIC photos need the pillow-heif package on this machine"
+
+
+def test_a_broken_heic_decoder_leaves_no_upload(tmp_path, monkeypatch):
+    def broken(data):
+        raise RuntimeError("broken")
+
+    root = tmp_path / "uploads"
+    monkeypatch.setattr(chat, "_open_heic", broken)
+
+    with pytest.raises(ValueError) as exc:
+        chat.save_upload(b"heic", "image/heic", root=root)
+
+    assert str(exc.value) == "that HEIC photo could not be read"
+    assert not root.exists()
+
+
+def test_empty_and_oversize_heic_uploads_keep_the_existing_messages(tmp_path, monkeypatch):
+    monkeypatch.setattr(chat, "MAX_UPLOAD", 3)
+    monkeypatch.setattr(chat, "_heic_to_jpeg", lambda data: pytest.fail("the decoder should not run"))
+
+    with pytest.raises(ValueError, match="the file was empty"):
+        chat.save_upload(b"", "image/heic", root=tmp_path)
+    with pytest.raises(ValueError, match="over 20 MB"):
+        chat.save_upload(b"over", "image/heic", root=tmp_path)
+
+
+def test_a_real_heic_round_trip_becomes_a_jpeg(tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+    pillow_heif = pytest.importorskip("pillow_heif")
+    encoded = io.BytesIO()
+    try:
+        pillow_heif.from_pillow(Image.new("RGB", (3, 2), "red")).save(encoded, quality=90)
+    except Exception as exc:
+        pytest.skip(f"pillow-heif cannot encode HEIC: {exc}")
+
+    path = chat.save_upload(encoded.getvalue(), "image/heic", root=tmp_path, now=1)
+
+    assert path.read_bytes().startswith(b"\xff\xd8")
+    with Image.open(path) as converted:
+        assert converted.size == (3, 2)
+
+
+def test_heif_file_signatures_recognize_only_heif_brands():
+    brands = (b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"hevm", b"hevs", b"mif1", b"msf1", b"heif")
+    assert all(chat._looks_heif(b"\x00\x00\x00\x18ftyp" + brand) for brand in brands)
+    assert not any(chat._looks_heif(data) for data in (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"ftypheic", b""))
 
 
 def test_delivered_files_hide_the_path_and_stay_with_its_transcript(tmp_path):

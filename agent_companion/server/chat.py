@@ -24,6 +24,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import io
 import json
 import os
 import re
@@ -60,6 +61,8 @@ SENT_IMAGES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
 TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif",
          "application/pdf": ".pdf", "text/plain": ".txt", "text/csv": ".csv", "application/json": ".json",
          "text/markdown": ".md"}
+HEIC_TYPES = {"image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence"}
+_HEIF_BRANDS = {b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"hevm", b"hevs", b"mif1", b"msf1", b"heif"}
 FILE_ID = re.compile(r"^[0-9]{8}-[0-9a-f]{12}(\.[a-z0-9]{1,5})$")
 EFFORT_SENT = re.compile(r"/effort (low|medium|high|xhigh|max)")
 MODEL_SENT = re.compile(r"/model [A-Za-z0-9][\w.\[\]-]{0,80}")
@@ -743,17 +746,87 @@ def cleared_unprompted(transcript: Path) -> bool:
     return answer
 
 
+def _looks_heif(data: bytes) -> bool:
+    """Whether a file starts with a HEIF-compatible ISO base media header."""
+    return isinstance(data, bytes) and data[4:8] == b"ftyp" and data[8:12] in _HEIF_BRANDS
+
+
+def _open_heic(data: bytes):
+    """Open and fully load one HEIC image without making the decoder mandatory."""
+    try:
+        import pillow_heif
+        from PIL import Image
+    except ImportError as exc:
+        raise ValueError("HEIC photos need the pillow-heif package on this machine") from exc
+    try:
+        pillow_heif.register_heif_opener()
+        image = Image.open(io.BytesIO(data))
+        image.load()
+        return image
+    except Exception as exc:
+        raise ValueError("that HEIC photo could not be read") from exc
+
+
+def _heic_to_jpeg(data: bytes) -> bytes:
+    """Turn one HEIC image into a JPEG that says when it was taken and nothing else.
+
+    A phone photo carries where it was taken, the phone and its owner's
+    settings. The JPEG starts from an empty EXIF block: the capture time is
+    copied in, the colour profile is kept so the picture looks the same, and
+    everything else (GPS, maker notes, the thumbnail, XMP) is left behind."""
+    try:
+        image = _open_heic(data)
+    except ValueError:
+        raise                          # its own two plain messages
+    except Exception as exc:
+        raise ValueError("that HEIC photo could not be read") from exc
+    try:
+        from PIL import Image, ImageOps
+
+        source_exif = image.getexif()
+        original = source_exif.get_ifd(0x8769).get(0x9003) if 0x8769 in source_exif else None
+        capture_time = original if original is not None else source_exif.get(0x0132)
+        profile = image.info.get("icc_profile")
+        image = ImageOps.exif_transpose(image)
+        if image.mode == "P" and "transparency" in image.info:
+            image = image.convert("RGBA")
+        if "A" in image.getbands():
+            white = Image.new("RGB", image.size, "white")
+            white.paste(image, mask=image.getchannel("A"))
+            image = white
+        else:
+            image = image.convert("RGB")
+        output = io.BytesIO()
+        # Named one by one: the writer takes these from what it is handed, so a
+        # tag that is not handed over cannot travel with the picture.
+        options = {"quality": 92, "comment": b""}
+        if capture_time is not None:
+            clean_exif = Image.Exif()
+            clean_exif[0x0132] = capture_time
+            clean_exif[0x8769] = {0x9003: capture_time}
+            options["exif"] = clean_exif.tobytes()
+        if profile:
+            options["icc_profile"] = profile
+        image.save(output, "JPEG", **options)
+        return output.getvalue()
+    except Exception as exc:
+        raise ValueError("that HEIC photo could not be read") from exc
+
+
 def save_upload(data: bytes, content_type: str, root: Path | None = None,
                 now: float | None = None) -> Path:
     """Keep one supported attachment privately."""
     ctype = (content_type or "").split(";", 1)[0].strip().lower()
-    extension = TYPES.get(ctype)
+    is_heic = ctype in HEIC_TYPES or (ctype in ("", "application/octet-stream") and _looks_heif(data))
+    extension = ".jpg" if is_heic else TYPES.get(ctype)
     if not extension:
         raise ValueError(f"{ctype or 'that kind of file'} is not something an agent can open")
     if not data:
         raise ValueError("the file was empty")
     if len(data) > MAX_UPLOAD:
         raise ValueError("over 20 MB")
+    if is_heic:
+        data = _heic_to_jpeg(data)
     now = time.time() if now is None else now
     directory = Path(root or uploads_path())
     directory.mkdir(parents=True, exist_ok=True)
