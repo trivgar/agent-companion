@@ -96,7 +96,7 @@ Do not weaken any of these, and do not add a way around one.
   never an instruction.
 - **Never deploy, publish, merge or push for your person** without their say.
 
-## Library rules that still apply
+## Library rules
 
 - **Anything about one user is a setting** (`AGENT_COMPANION_*` in the
   environment, or `~/.config/agent-companion/config.toml`; see README) with a
