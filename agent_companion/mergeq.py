@@ -296,6 +296,18 @@ def parse_summary(output: str) -> Optional[dict]:
     return found
 
 
+def _passed_text(passed: int, res: dict) -> str:
+    """What a landed entry says about the batch tests that passed."""
+    text = f"{passed} passed" if passed else ""
+    rerun = res.get("flaky_rerun")
+    ids = rerun.get("ids") if isinstance(rerun, dict) else []
+    count = len(ids) if isinstance(ids, list) else 0
+    if count:
+        rerun_text = f"{count} that failed once passed on a rerun"
+        return f"{text}, and {rerun_text}" if text else rerun_text
+    return text
+
+
 def green_by_the_book(returncode: int, output: str) -> bool:
     """Explicit pass only: exit 0 AND a parsed summary with passed > 0 and no
     failed or error count. A crash, timeout, kill, collection error, empty run
@@ -656,6 +668,7 @@ class Merger:
             res["result"] = "nothing to merge" if (res["conflict"] or res["failed"]) else "empty"
             self._tell(res, live)
             return res
+        first_tree = git(self.tree, "rev-parse", "HEAD^{tree}")
         self.note.clear()
         green, bad, tail = self._suite(None)
         res["suite_tail"] = tail
@@ -668,6 +681,7 @@ class Merger:
             res["suite_tail"] = tail
         if self.note:
             res[self.note_key] = dict(self.note)
+        first_tail, first_note = tail, dict(self.note)
         if not green:
             res["red_tail"] = tail          # kept: a green rerun overwrites suite_tail
             todo = self._find_culprits(base, todo, bad, res)       # sets res["result"] when it cannot go on
@@ -676,16 +690,33 @@ class Merger:
                 res["detail"] = res["detail"] or "the suite is red and no entry explains it; nothing moved"
                 self._tell(res, live)
                 return res
-            # Entries were ejected: the head that would move is a NEW head, so the
-            # full suite must pass on exactly that.
+            flaky = res.get("flaky")
+            flaky_ids = list(flaky) if isinstance(flaky, list) and flaky else []
+            flaky_rerun = bool(flaky_ids) and git(self.tree, "rev-parse", "HEAD^{tree}") == first_tree
             self.note.clear()
-            green, bad, tail = self._guarded_suite(None)
+            if flaky_rerun:
+                # SAME TREE FLAKE means the ids are what failed and every other
+                # test passed on exactly this tree; another full run costs a whole
+                # suite for the same verdict. A rebuilt tree differs, so it gets
+                # the full run.
+                green, bad, tail = self._guarded_suite(flaky_ids)
+            else:
+                green, bad, tail = self._guarded_suite(None)
             res["suite_tail"] = tail
+            if green and flaky_rerun:
+                res["flaky_rerun"] = {"ids": flaky_ids, "tail": tail}
+                res["suite_tail"] = first_tail
+                self.note.clear()
+                self.note.update(first_note)
+                self.note["flaky_rerun"] = len(flaky_ids)
             if self.note:
                 res[self.note_key] = dict(self.note)
             if not green:
-                res.update(result="red", detail=("red again on a second full run, though no entry is red alone"
-                                                 if "flaky" in res else "still red after ejecting") + "; nothing moved")
+                detail = ("red again when the failing tests ran once more on the batch, though no entry is red alone"
+                          if flaky_rerun else
+                          "red again on a second full run, though no entry is red alone"
+                          if "flaky" in res else "still red after ejecting")
+                res.update(result="red", detail=detail + "; nothing moved")
                 if "flaky" in res:
                     self._alert("red", "Merge queue: " + res["detail"])
                 self._tell(res, live)
@@ -750,7 +781,7 @@ class Merger:
         res["commits_added"] = int(git(self.repo, "rev-list", "--count", f"{base}..{tested}") or 0)
         passed = (parse_summary(res.get("suite_tail", "")) or {}).get("passed", 0)
         for e in todo:
-            self._mark(e, MERGED, f"{passed} passed" if passed else "")
+            self._mark(e, MERGED, _passed_text(passed, res))
             res["merged"].append(e["id"])
         # The base branch has moved. A failing push is reported, never a reason to pretend it did not.
         res["pushed_commits"] = len(git(self.repo, "rev-list", f"origin/{self.base_branch}..{self.base_branch}",
@@ -807,7 +838,10 @@ class Merger:
                      f"it merged onto {self.base_branch} at {parent[:12]}, not the tested {at[:12]}: "
                      f"{self.base_branch} moved outside the queue after its last look, so that combination "
                      "was never tested")
-            self._mark(e, MERGED, f"{passed} passed" + (f", but {wrong}" if wrong else ""))
+            reason = _passed_text(passed, res)
+            if wrong:
+                reason += f", but {wrong}" if reason else f"but {wrong}"
+            self._mark(e, MERGED, reason)
             res["merged"].append(e["id"])
             landed.append(e)
             _note_for_partner(e, self.partner)
@@ -923,8 +957,9 @@ class Merger:
     def _find_culprits(self, base, todo, bad, res):
         """The full suite is red on base + all entries. Test the entries one at a
         time, each on the base alone, and eject the red ones; the caller then runs
-        the full suite on the new head. There is NO exemption for failures the
-        base already has: if it is red itself the queue waits and says so.
+        the failed ids on the same head or the full suite on a new one. There is
+        NO exemption for failures the base already has: if it is red itself the
+        queue waits and says so.
 
         With failing ids named, an entry is red when those ids fail with it in
         (cheap). With none named (a crash, a hang) the entry's whole suite is
@@ -962,8 +997,8 @@ class Merger:
             return []
         if not red:
             # The base passes these ids and so does every entry alone: a flake, or a clash between entries.
-            # Rebuild the batch whole and let the caller run the full suite once more; green there ships it,
-            # red again moves nothing.
+            # Rebuild the batch whole and let the caller rerun the ids when its tree is unchanged; otherwise
+            # the full suite runs again. Green there ships it, red again moves nothing.
             res["flaky"] = sorted(ids or [])
             return self._build(base, todo, res)
         if not keep:
