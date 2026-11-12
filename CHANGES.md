@@ -3,6 +3,9 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## 2026-11-11
+- Merge queue: when a red batch's failures pass on main and with each branch alone,
+  only those tests run again on the batch, not the whole suite, and it lands if they
+  pass; its entries say how many passed on that rerun.
 - Chat uploads take HEIC and HEIF photos, converted to JPEG with location and
   every other tag but the capture time removed (the colour profile is kept);
   this needs `pip install pillow-heif` (the `heic` extra), and without it the

@@ -162,10 +162,12 @@ branch only when it is green. A collaborator's pull request goes through the
 same queue with `mergeq add --pr <number>`. On red, it first checks main
 itself, since nothing merges onto a red main, then tries each branch alone to
 find the one to blame; the rest land once the whole suite passes on them
-again. If main moves outside the queue while it lands, what is left waits for
-the next batch. Once a branch lands, its worktree is removed if nothing in it
-is uncommitted. `mergeq_land = "local"` fast-forwards the base branch in the
-checkout and pushes it instead. COLLAB.md has the details.
+again. When no branch is red alone, only the tests that failed run again on
+the batch, and it lands if they pass. If main moves outside the queue while it
+lands, what is left waits for the next batch. Once a branch lands, its
+worktree is removed if nothing in it is uncommitted. `mergeq_land = "local"`
+fast-forwards the base branch in the checkout and pushes it instead. COLLAB.md
+has the details.
 
 ## How it fits together
 

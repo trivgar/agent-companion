@@ -106,35 +106,84 @@ def test_a_red_batch_ejects_the_culprit_with_its_ids_and_ships_the_rest(world):
 
 def test_red_that_cannot_be_pinned_on_an_entry_moves_nothing(world):
     world.branch("a", {"a.txt": "a"}); world.branch("b", {"b.txt": "b"})
-    calls = {"n": 0}
-    real = world.merger.suite
 
     def flaky(tree, ids):
-        calls["n"] += 1
-        return (True, [], "") if ids is not None else (False, ["test_flaky"], "boom")
+        batch = (Path(tree) / "a.txt").exists() and (Path(tree) / "b.txt").exists()
+        return (False, ["test_flaky"], "boom") if batch else (True, [], "")
     world.merger.suite = flaky
     before = sh(world.repo, "rev-parse", "main")
     r = world.merger.run()
     assert r["result"] == "red" and sh(world.repo, "rev-parse", "main") == before
     assert world.calls["push"] == world.calls["restart"] == 0
-    assert "red again on a second full run" in r["detail"]
+    assert r["detail"] == ("red again when the failing tests ran once more on the batch, though no entry is red alone; "
+                           "nothing moved")
 
 
-def test_a_flake_that_passes_on_a_second_full_run_ships_the_batch(world):
+def test_a_flake_that_passes_when_only_the_failed_tests_run_again_ships_the_batch(world):
     world.branch("a", {"a.txt": "a"}); world.branch("b", {"b.txt": "b"})
-    full = {"n": 0}
+    calls = []
 
     def once(tree, ids):
-        if ids is not None:
-            return True, [], ""
-        full["n"] += 1
-        return (False, ["test_flaky"], "boom") if full["n"] == 1 else (True, [], "")
+        files = {p.name for p in Path(tree).iterdir()}
+        batch = {"a.txt", "b.txt"} <= files
+        calls.append((files, ids))
+        return (False, ["test_flaky"], "boom") if batch and ids is None else (True, [], "")
     world.merger.suite = once
     r = world.merger.run()
-    assert r["result"] == "green" and r["flaky"] == ["test_flaky"] and full["n"] == 2
+    assert r["result"] == "green" and r["flaky"] == ["test_flaky"]
+    assert sum(ids is None for _, ids in calls) == 1
+    assert {"a.txt", "b.txt"} <= calls[-1][0] and calls[-1][1] == ["test_flaky"]
+    assert r["flaky_rerun"]["ids"] == ["test_flaky"]
     assert r["red_tail"] == "boom"
     assert {x["branch"]: x["state"] for x in world.store.entries()} == {"a": "merged", "b": "merged"}
     assert world.calls["push"] == 1
+
+
+def test_a_flaky_rerun_keeps_the_full_run_count_for_landing(world):
+    world.branch("a", {"a.txt": "a"}); world.branch("b", {"b.txt": "b"})
+    full_tail = "1 failed, 5 passed in 2.0s"
+
+    def suite(tree, ids):
+        batch = (Path(tree) / "a.txt").exists() and (Path(tree) / "b.txt").exists()
+        if batch and ids is None:
+            return False, ["test_flaky"], full_tail
+        return True, [], "1 passed in 0.1s"
+
+    world.merger.suite = suite
+    r = world.merger.run()
+    assert r["suite_tail"] == full_tail
+    assert [e["reason"] for e in world.store.entries()] == [
+        "5 passed, and 1 that failed once passed on a rerun",
+        "5 passed, and 1 that failed once passed on a rerun",
+    ]
+
+
+def test_a_changed_integration_tree_gets_a_second_full_run(world, monkeypatch):
+    world.branch("a", {"a.txt": "a"}); world.branch("b", {"b.txt": "b"})
+    calls = []
+
+    def suite(tree, ids):
+        files = {p.name for p in Path(tree).iterdir()}
+        calls.append((files, ids))
+        if {"a.txt", "b.txt"} <= files and "changed.txt" not in files and ids is None:
+            return False, ["test_flaky"], "boom"
+        return True, [], "1 passed in 0.1s"
+
+    real_find_culprits = world.merger._find_culprits
+
+    def changed_tree(base, todo, bad, res):
+        kept = real_find_culprits(base, todo, bad, res)
+        (world.merger.tree / "changed.txt").write_text("changed\n")
+        sh(world.merger.tree, "add", "changed.txt")
+        sh(world.merger.tree, "commit", "-qm", "changed integration tree")
+        return kept
+
+    world.merger.suite = suite
+    monkeypatch.setattr(world.merger, "_find_culprits", changed_tree)
+    r = world.merger.run()
+    second_batch_head = [ids for files, ids in calls if {"a.txt", "b.txt", "changed.txt"} <= files]
+    assert second_batch_head == [None]
+    assert "flaky_rerun" not in r
 
 
 def test_a_red_master_stops_the_queue_and_blames_nobody(world):
