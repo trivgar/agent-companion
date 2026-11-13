@@ -251,6 +251,15 @@ def test_headless_command_is_an_allow_list(monkeypatch):
         assert s in denied
 
 
+def test_headless_run_waits_for_its_connectors_before_the_first_turn(monkeypatch):
+    # Claude Code connects MCP servers in the background unless told not to. A
+    # one-turn headless run then starts before the Gmail connector is up, has no
+    # tool, and types a fake tool call as its answer (seen from 2026-11-11).
+    from agent_companion.mail import claude
+    monkeypatch.setenv("MCP_CONNECTION_NONBLOCKING", "true")
+    assert claude.build_env()["MCP_CONNECTION_NONBLOCKING"] == "false"
+
+
 def test_headless_run_uses_an_empty_temp_cwd_and_a_minimal_env(monkeypatch):
     import os
     from agent_companion.mail import claude
