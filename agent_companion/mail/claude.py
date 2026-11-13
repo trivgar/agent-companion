@@ -73,6 +73,11 @@ def build_command(allowed=(), model: str | None = None) -> list[str]:
 def build_env() -> dict:
     env = {k: os.environ[k] for k in _ENV_KEEP if k in os.environ}
     env["AGENT_COMPANION_JOB"] = "mail"
+    # Claude Code connects MCP servers in the background by default, so a run
+    # that is one turn began before the claude.ai Gmail connector was up, had no
+    # tool to call and typed a fake call as its answer (seen from 2026-11-11,
+    # checked live). Blocking mode waits for the connectors first (5 s cap).
+    env["MCP_CONNECTION_NONBLOCKING"] = "false"
     return env
 
 
