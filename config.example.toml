@@ -68,6 +68,10 @@ app_name = "Companion"
 # Commands never reaped: a regular expression, matched without regard to case.
 # Single quotes make it a TOML literal string, so backslashes stay as written.
 # job_reaper_keep = '# keep-running|\bhttp\.server\b|\buvicorn\b|\bnpm\s+run\s+dev\b|\btail\s+-f\b'
+# Language servers under a live session can hold memory while idle for days.
+# Name them to stop only after their process tree has used no CPU for this long.
+# job_reaper_idle = 'pyright-langserver|vtsls|typescript-language-server'
+# job_reaper_idle_hours = 2
 # Test-runner workers left running after their runner died (a timeout, or a
 # "| head" that ends the runner first) hold their memory until stopped. Name
 # them here to stop them once orphaned (parent pid 1) past job_reaper_orphan_min.

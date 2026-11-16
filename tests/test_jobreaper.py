@@ -26,15 +26,38 @@ def _proc(tmp_path):
     proc.mkdir()
     (proc / "stat").write_text("btime 1000\n")
 
-    def add(pid, ppid, started, command, comm="process"):
+    def add(pid, ppid, started, command, comm="process", utime=0, stime=0):
         folder = proc / str(pid)
         folder.mkdir()
         fields = ["S", str(ppid)] + ["0"] * 17 + [str(started)]
+        fields[11], fields[12] = str(utime), str(stime)
         (folder / "stat").write_text(f"{pid} ({comm}) " + " ".join(fields) + "\n")
         (folder / "cmdline").write_bytes(b"\0".join(part.encode() for part in command) + b"\0")
         (folder / "comm").write_text(comm + "\n")
 
     return proc, add
+
+
+def _cpu(proc, pid, utime, stime=0):
+    path = proc / str(pid) / "stat"
+    prefix, tail = path.read_text().rsplit(")", 1)
+    fields = tail.split()
+    fields[11], fields[12] = str(utime), str(stime)
+    path.write_text(prefix + ") " + " ".join(fields) + "\n")
+
+
+def _start_ticks(proc, pid, started):
+    path = proc / str(pid) / "stat"
+    prefix, tail = path.read_text().rsplit(")", 1)
+    fields = tail.split()
+    fields[19] = str(started)
+    path.write_text(prefix + ") " + " ".join(fields) + "\n")
+
+
+def _idle(monkeypatch, tmp_path, hours=2):
+    monkeypatch.setenv("AGENT_COMPANION_JOB_REAPER_IDLE", "vtsls|pyright-langserver")
+    monkeypatch.setenv("AGENT_COMPANION_JOB_REAPER_IDLE_HOURS", str(hours))
+    monkeypatch.setenv("AGENT_COMPANION_DATA_DIR", str(tmp_path / "data"))
 
 
 def _shell(command="sleep 60"):
@@ -251,6 +274,17 @@ def test_max_hours_is_a_positive_number_or_off(monkeypatch, raw, seconds):
     assert jobreaper.max_s() == seconds
 
 
+@pytest.mark.parametrize("raw, seconds", [
+    ("6", 6 * HOUR), (6, 6 * HOUR), ("1.5", 5400), ("0", 2 * HOUR),
+    ("-1", 2 * HOUR), ("soon", 2 * HOUR), (True, 2 * HOUR),
+    ("inf", 2 * HOUR), ("nan", 2 * HOUR),
+])
+def test_idle_hours_is_a_positive_number_or_the_default(monkeypatch, raw, seconds):
+    monkeypatch.setattr(jobreaper.config, "get",
+                        lambda key, default=None: raw if key == "job_reaper_idle_hours" else default)
+    assert jobreaper.idle_s() == seconds
+
+
 def test_a_dry_run_lists_what_would_go_and_signals_nothing(monkeypatch, capsys):
     rows = [{"pid": 110, "ppid": 100, "start_ticks": 1, "age_s": 7 * HOUR,
              "cmd": "pytest -q", "why": "over 6 h"}]
@@ -331,3 +365,173 @@ def test_an_orphans_pattern_that_cannot_be_read_reaps_nothing(tmp_path, monkeypa
     add(201, 1, 100, _shell(), "bash")
     assert jobreaper.stuck(str(proc), now=5000, minimum_age_s=1) == []
     assert "job_reaper_orphans" in jobreaper.problem()
+
+
+def test_idle_language_servers_are_off_until_named(tmp_path, monkeypatch):
+    monkeypatch.delenv("AGENT_COMPANION_JOB_REAPER_IDLE", raising=False)
+    monkeypatch.setenv("AGENT_COMPANION_DATA_DIR", str(tmp_path / "data"))
+    proc, add = _proc(tmp_path)
+    _session(add)
+    add(110, 100, _start(8 * HOUR), ["vtsls", "--stdio"], "node")
+
+    assert jobreaper.stuck(str(proc), now=NOW) == []
+    assert not jobreaper.idle_state_path().exists()
+
+
+def test_idle_language_server_waits_for_unchanged_cpu_across_passes(tmp_path, monkeypatch):
+    _idle(monkeypatch, tmp_path)
+    proc, add = _proc(tmp_path)
+    _session(add)
+    add(110, 100, _start(8 * HOUR), ["vtsls", "--stdio"], "node")
+
+    assert jobreaper.stuck(str(proc), now=NOW) == []
+    assert jobreaper.stuck(str(proc), now=NOW + 2 * HOUR - 1) == []
+    rows = jobreaper.stuck(str(proc), now=NOW + 2 * HOUR)
+
+    assert [(row["pid"], row["why"]) for row in rows] == [
+        (110, "idle language server, no CPU for 2 h")]
+    assert json.loads(jobreaper.idle_state_path().read_text()) == {
+        f"110:{_start(8 * HOUR)}": {"since": float(NOW), "ticks": 0}}
+
+
+def test_idle_cpu_movement_resets_the_idle_clock(tmp_path, monkeypatch):
+    _idle(monkeypatch, tmp_path)
+    proc, add = _proc(tmp_path)
+    _session(add)
+    add(110, 100, _start(8 * HOUR), ["vtsls", "--stdio"], "node")
+
+    assert jobreaper.stuck(str(proc), now=NOW) == []
+    _cpu(proc, 110, 4, 3)
+    assert jobreaper.stuck(str(proc), now=NOW + HOUR) == []
+    assert jobreaper.stuck(str(proc), now=NOW + 2 * HOUR) == []
+    assert [row["pid"] for row in jobreaper.stuck(str(proc), now=NOW + 3 * HOUR)] == [110]
+
+
+def test_idle_parent_counts_cpu_used_by_its_child(tmp_path, monkeypatch):
+    _idle(monkeypatch, tmp_path)
+    proc, add = _proc(tmp_path)
+    _session(add)
+    add(110, 100, _start(8 * HOUR), ["vtsls", "--stdio"], "node")
+    add(111, 110, _start(8 * HOUR), ["worker"], "node")
+
+    assert jobreaper.stuck(str(proc), now=NOW) == []
+    _cpu(proc, 111, 1)
+    assert jobreaper.stuck(str(proc), now=NOW + HOUR) == []
+    assert jobreaper.stuck(str(proc), now=NOW + 2 * HOUR) == []
+    assert [row["pid"] for row in jobreaper.stuck(str(proc), now=NOW + 3 * HOUR)] == [110]
+
+
+def test_nested_idle_matches_belong_to_the_outer_language_server(tmp_path, monkeypatch):
+    _idle(monkeypatch, tmp_path)
+    proc, add = _proc(tmp_path)
+    _session(add)
+    add(110, 100, _start(8 * HOUR), ["vtsls", "--wrapper"], "node")
+    add(111, 110, _start(8 * HOUR), ["vtsls", "--server"], "node")
+
+    jobreaper.stuck(str(proc), now=NOW)
+    assert [row["pid"] for row in jobreaper.stuck(str(proc), now=NOW + 2 * HOUR)] == [110]
+
+
+def test_keep_pattern_wins_over_the_idle_language_server_rule(tmp_path, monkeypatch):
+    _idle(monkeypatch, tmp_path)
+    monkeypatch.setenv("AGENT_COMPANION_JOB_REAPER_KEEP", "vtsls")
+    proc, add = _proc(tmp_path)
+    _session(add)
+    add(110, 100, _start(8 * HOUR), ["vtsls", "--stdio"], "node")
+
+    jobreaper.stuck(str(proc), now=NOW)
+    assert jobreaper.stuck(str(proc), now=NOW + 3 * HOUR) == []
+    assert json.loads(jobreaper.idle_state_path().read_text()) == {}
+
+
+def test_idle_match_without_a_live_claude_ancestor_is_not_stuck(tmp_path, monkeypatch):
+    _idle(monkeypatch, tmp_path)
+    proc, add = _proc(tmp_path)
+    add(110, 1, _start(8 * HOUR), ["vtsls", "--stdio"], "node")
+
+    jobreaper.stuck(str(proc), now=NOW)
+    assert jobreaper.stuck(str(proc), now=NOW + 3 * HOUR) == []
+    assert json.loads(jobreaper.idle_state_path().read_text()) == {}
+
+
+def test_an_idle_rule_never_selects_a_claude_process(tmp_path, monkeypatch):
+    _idle(monkeypatch, tmp_path)
+    proc, add = _proc(tmp_path)
+    add(1, 0, 0, ["init"], "init")
+    add(100, 1, _start(8 * HOUR), ["claude", "vtsls"], "claude")
+
+    jobreaper.stuck(str(proc), now=NOW)
+    assert jobreaper.stuck(str(proc), now=NOW + 3 * HOUR) == []
+    assert json.loads(jobreaper.idle_state_path().read_text()) == {}
+
+
+def test_reused_idle_pid_with_a_new_start_tick_starts_fresh(tmp_path, monkeypatch):
+    _idle(monkeypatch, tmp_path)
+    proc, add = _proc(tmp_path)
+    _session(add)
+    old_start = _start(8 * HOUR)
+    new_start = _start(7 * HOUR)
+    add(110, 100, old_start, ["vtsls", "--stdio"], "node")
+
+    assert jobreaper.stuck(str(proc), now=NOW) == []
+    _start_ticks(proc, 110, new_start)
+    assert jobreaper.stuck(str(proc), now=NOW + 2 * HOUR) == []
+    assert [row["pid"] for row in jobreaper.stuck(str(proc), now=NOW + 4 * HOUR)] == [110]
+    assert list(json.loads(jobreaper.idle_state_path().read_text())) == [f"110:{new_start}"]
+
+
+def test_a_corrupt_idle_state_file_starts_empty(tmp_path, monkeypatch):
+    _idle(monkeypatch, tmp_path)
+    proc, add = _proc(tmp_path)
+    _session(add)
+    add(110, 100, _start(8 * HOUR), ["vtsls", "--stdio"], "node")
+    state = jobreaper.idle_state_path()
+    state.parent.mkdir()
+    state.write_text("not json")
+
+    assert jobreaper.stuck(str(proc), now=NOW) == []
+    assert json.loads(state.read_text()) == {
+        f"110:{_start(8 * HOUR)}": {"since": float(NOW), "ticks": 0}}
+
+
+def test_idle_dry_run_reads_but_does_not_write_its_state(tmp_path, monkeypatch):
+    _idle(monkeypatch, tmp_path)
+    proc, add = _proc(tmp_path)
+    _session(add)
+    start = _start(8 * HOUR)
+    add(110, 100, start, ["vtsls", "--stdio"], "node")
+    state = jobreaper.idle_state_path()
+    state.parent.mkdir()
+    original = {f"110:{start}": {"since": NOW - 3 * HOUR, "ticks": 0}}
+    state.write_text(json.dumps(original))
+
+    rows = jobreaper.stuck(str(proc), now=NOW, write_idle_state=False)
+
+    assert [row["pid"] for row in rows] == [110]
+    assert json.loads(state.read_text()) == original
+
+
+def test_idle_kill_rejudge_refuses_cpu_that_moved_after_the_pass(tmp_path, monkeypatch):
+    _idle(monkeypatch, tmp_path)
+    proc, add = _proc(tmp_path)
+    _session(add)
+    add(110, 100, _start(8 * HOUR), ["vtsls", "--stdio"], "node")
+    jobreaper.stuck(str(proc), now=NOW)
+    row = jobreaper.stuck(str(proc), now=NOW + 2 * HOUR)[0]
+    _cpu(proc, 110, 1)
+    sent = []
+
+    assert jobreaper.kill(row, str(proc), now=NOW + 2 * HOUR,
+                          signal_fn=lambda pid, sig: sent.append((pid, sig)),
+                          sleep_fn=lambda _: None) == []
+    assert sent == []
+
+
+def test_an_invalid_idle_pattern_stops_the_reaper(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_JOB_REAPER_IDLE", "(")
+    proc, add = _proc(tmp_path)
+    _session(add)
+    add(110, 100, _start(8 * HOUR), ["vtsls", "--stdio"], "node")
+
+    assert jobreaper.stuck(str(proc), now=NOW) == []
+    assert jobreaper.problem().startswith("job_reaper_idle is not a valid pattern")

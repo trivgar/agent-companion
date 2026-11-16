@@ -66,6 +66,9 @@ background shell whose Claude session has ended is terminated once it is an
 hour old (`job_reaper_after_min`), and one under a live session only if you
 set `job_reaper_max_hours`. That includes a dev server a session started in the
 background and left running, so name those in `job_reaper_keep`.
+Optionally, `job_reaper_idle` names language servers below a live session to
+stop only after their whole process tree has used no CPU for
+`job_reaper_idle_hours` (2 by default); they restart on their next use.
 `python3 -m agent_companion.jobreaper --dry-run` lists what would go. Each
 card has a deterministic procedural pixel sprite based on its display name. At the top, your 5-hour and 7-day spend, real
 Claude limits, and, when local Codex rollout logs exist, Codex plan limits.
@@ -202,7 +205,9 @@ corresponding feature is used:
   directory when it terminates a stuck snapshot shell: an orphan, or with
   `job_reaper_max_hours` set, one under a live session past that age. It
   records the time, process ids, age, why and redacted command. The reaper
-  runs only once `job_reaper_every_min` is set.
+  runs only once `job_reaper_every_min` is set. With `job_reaper_idle`, it
+  also keeps its small CPU-idle history in `job-reaper-idle.json` there for
+  matching language servers below a live session.
 - The standalone `notify` hook writes a waiting marker at
   `~/.claude/session-companion-waiting/<pid>`. If that hook sends Web Push, it
   uses the same push key and devices as the dashboard,
@@ -482,6 +487,8 @@ hooks run outside any server's process. The server's own settings
 | `job_reaper_every_min` | Reaper interval in minutes; default 0, which leaves the reaper off. Set it (10 is a good start) to turn it on |
 | `job_reaper_max_hours` | Hours past which a background job under a live session is reaped too; unset or 0 leaves those alone |
 | `job_reaper_keep` | A regular expression (any case) for commands never reaped, such as dev servers and log follows; one that cannot compile stops the reaper |
+| `job_reaper_idle` | A regular expression (any case) for language servers under a live session to reap only after their process tree is CPU-idle; unset leaves this rule off |
+| `job_reaper_idle_hours` | Positive CPU-idle hours before a matching language server is reaped; default 2 |
 | `health_disks` | Extra local disk paths for the Machine tab; `/` is always included |
 | `health_hot_c` | CPU and GPU warning temperature in C; default 85 |
 | `health_disk_full_pct` | Disk-use warning percentage; default 90 |
