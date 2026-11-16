@@ -14,6 +14,11 @@ every pid's identity checked, so a recycled pid or a job that stopped being
 stuck is never signalled. ``python3 -m agent_companion.jobreaper --dry-run``
 lists what a pass would stop and signals nothing.
 
+Optionally, ``job_reaper_idle`` names language-server commands to stop only
+when they are below a live Claude session and their process tree has used no
+CPU for ``job_reaper_idle_hours``. Their cumulative CPU and idle start time
+are kept in ``job-reaper-idle.json`` in the data directory between passes.
+
 The server's worker is off until ``job_reaper_every_min`` is set: it
 terminates processes, and an owner who never asked for that should not find a
 dev server gone. A pass run by a timer of your own (``main``) does not read it.
@@ -28,6 +33,7 @@ from pathlib import Path
 import re
 import signal
 import sys
+import tempfile
 import threading
 import time
 from typing import NamedTuple
@@ -39,6 +45,8 @@ DEFAULT_AFTER_MIN = 60
 DEFAULT_ORPHAN_MIN = 15
 GRACE_S = 10.0
 LOG_NAME = "job-reaper.jsonl"
+IDLE_STATE_NAME = "job-reaper-idle.json"
+DEFAULT_IDLE_HOURS = 2
 
 
 def _minutes(key: str, default: int) -> int:
@@ -72,6 +80,19 @@ def max_s() -> int:
     return int(hours * 3600) if math.isfinite(hours) and hours > 0 else 0
 
 
+def idle_s() -> int:
+    """How long an opted-in language server must use no CPU before stopping."""
+    raw = config.get("job_reaper_idle_hours", DEFAULT_IDLE_HOURS)
+    if isinstance(raw, bool):
+        return DEFAULT_IDLE_HOURS * 3600
+    try:
+        hours = float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_IDLE_HOURS * 3600
+    return (int(hours * 3600) if math.isfinite(hours) and hours > 0
+            else DEFAULT_IDLE_HOURS * 3600)
+
+
 def orphan_s() -> int:
     """How old an orphaned worker (``job_reaper_orphans``) may grow."""
     return _minutes("job_reaper_orphan_min", DEFAULT_ORPHAN_MIN) * 60
@@ -100,9 +121,18 @@ def keep_pattern() -> re.Pattern | None:
     return _pattern("job_reaper_keep")
 
 
+def idle_pattern() -> re.Pattern | None:
+    """``job_reaper_idle``: language-server commands to stop only after they
+    have used no CPU for the configured idle span. None leaves this rule off."""
+    return _pattern("job_reaper_idle")
+
+
 def problem() -> str:
-    """Why a pass reaps nothing, or "" when the settings can be used. A keep
-    pattern that cannot be read stops the reaper: it is there to protect jobs."""
+    """Why a pass reaps nothing, or "" when the settings can be used.
+
+    An unreadable keep, orphan-worker, or idle-language-server pattern stops
+    the reaper rather than risking an unintended termination.
+    """
     try:
         keep_pattern()
     except (re.error, TypeError) as exc:
@@ -111,6 +141,10 @@ def problem() -> str:
         orphan_pattern()
     except (re.error, TypeError) as exc:
         return f"job_reaper_orphans is not a valid pattern ({exc}); nothing is reaped"
+    try:
+        idle_pattern()
+    except (re.error, TypeError) as exc:
+        return f"job_reaper_idle is not a valid pattern ({exc}); nothing is reaped"
     return ""
 
 
@@ -120,16 +154,18 @@ class _Rules(NamedTuple):
     keep: re.Pattern | None
     orphans: re.Pattern | None = None
     orphan_s: int = DEFAULT_ORPHAN_MIN * 60
+    idle: re.Pattern | None = None
+    idle_s: int = DEFAULT_IDLE_HOURS * 3600
 
 
 def _rules(minimum_age_s: int | None = None) -> _Rules | None:
     """One pass's rules, or None while ``problem()`` says why."""
     try:
-        keep, orphans = keep_pattern(), orphan_pattern()
+        keep, orphans, idle = keep_pattern(), orphan_pattern(), idle_pattern()
     except (re.error, TypeError):
         return None
     after = after_s() if minimum_age_s is None else max(0, int(minimum_age_s))
-    return _Rules(after, max_s(), keep, orphans, orphan_s())
+    return _Rules(after, max_s(), keep, orphans, orphan_s(), idle, idle_s())
 
 
 def _span(seconds: int) -> str:
@@ -147,6 +183,11 @@ def data_dir() -> Path:
 
 def log_path(directory: Path | None = None) -> Path:
     return Path(directory or data_dir()) / LOG_NAME
+
+
+def idle_state_path(directory: Path | None = None) -> Path:
+    """The short-lived CPU history for opted-in idle language servers."""
+    return Path(directory or data_dir()) / IDLE_STATE_NAME
 
 
 def is_claude(proc: str, pid: int) -> bool:
@@ -181,6 +222,192 @@ def has_claude_ancestor(proc: str, pid: int) -> bool:
             return False
         current = details[0]
     return True                 # unknown ancestry is not safe to reap
+
+
+def _cpu_ticks(proc: str, pid: int) -> int | None:
+    """The process's user plus system CPU ticks, if procfs still has it."""
+    try:
+        with open(f"{proc}/{pid}/stat") as fh:
+            fields = fh.read().rsplit(")", 1)[1].split()
+        return int(fields[11]) + int(fields[12])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _processes(proc: str) -> dict[int, tuple[int, int]]:
+    """The readable pids with their parent and immutable start tick."""
+    found: dict[int, tuple[int, int]] = {}
+    for name in os.listdir(proc):
+        if name.isdigit():
+            pid = int(name)
+            details = bgjobs.stat(proc, pid)
+            if details:
+                found[pid] = details
+    return found
+
+
+def _children(processes: dict[int, tuple[int, int]]) -> dict[int, list[int]]:
+    children: dict[int, list[int]] = {}
+    for pid, (parent, _) in processes.items():
+        children.setdefault(parent, []).append(pid)
+    return children
+
+
+def _tree_cpu_ticks(proc: str, root: int, children: dict[int, list[int]]) -> int | None:
+    """CPU ticks for *root* and every current descendant, together."""
+    total = 0
+    todo = [root]
+    seen: set[int] = set()
+    while todo:
+        pid = todo.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        used = _cpu_ticks(proc, pid)
+        if used is None:
+            return None
+        total += used
+        todo.extend(children.get(pid, ()))
+    return total
+
+
+def _idle_key(pid: int, start_ticks: int) -> str:
+    return f"{pid}:{start_ticks}"
+
+
+def _idle_state(directory: Path | None = None) -> dict[str, dict[str, float | int]]:
+    """Read safe idle history. A missing or malformed file is simply empty."""
+    try:
+        raw = json.loads(idle_state_path(directory).read_text())
+    except Exception:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    state: dict[str, dict[str, float | int]] = {}
+    for key, value in raw.items():
+        try:
+            pid, started = str(key).split(":", 1)
+            if int(pid) <= 0 or int(started) < 0:
+                continue
+            if not isinstance(value, dict):
+                continue
+            ticks, since = value["ticks"], value["since"]
+            if isinstance(ticks, bool) or not isinstance(ticks, int):
+                continue
+            if isinstance(since, bool) or not math.isfinite(float(since)):
+                continue
+            state[_idle_key(int(pid), int(started))] = {"ticks": ticks, "since": float(since)}
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+    return state
+
+
+def _write_idle_state(state: dict[str, dict[str, float | int]],
+                      directory: Path | None = None) -> None:
+    """Atomically replace idle history; a storage error never stops reaping."""
+    temporary: str | None = None
+    try:
+        path = idle_state_path(directory)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix=f".{IDLE_STATE_NAME}.", suffix=".tmp", dir=path.parent)
+        with os.fdopen(fd, "w") as fh:
+            os.fchmod(fh.fileno(), 0o600)
+            json.dump(state, fh, sort_keys=True, separators=(",", ":"))
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temporary, path)
+        temporary = None
+    except (OSError, TypeError, ValueError):
+        pass
+    finally:
+        if temporary:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+
+
+def _idle_candidate(proc: str, pid: int, rules: _Rules,
+                    processes: dict[int, tuple[int, int]],
+                    children: dict[int, list[int]]) -> dict | None:
+    """The current CPU and identity of one language server eligible for idle reaping."""
+    if rules.idle is None:
+        return None
+    details = processes.get(pid)
+    if not details:
+        return None
+    parent, started = details
+    command = bgjobs.argv(proc, pid)
+    line = " ".join(command)
+    # The pattern first: it is cheap, and the ancestry walk below reads /proc
+    # for every process above this one.
+    if not line or not rules.idle.search(line):
+        return None
+    if rules.keep and rules.keep.search(line):
+        return None
+    if rules.idle.search(" ".join(bgjobs.argv(proc, parent))):
+        return None
+    if is_claude(proc, pid) or not has_claude_ancestor(proc, pid):
+        return None
+    used = _tree_cpu_ticks(proc, pid, children)
+    if used is None:
+        return None
+    return {"pid": pid, "ppid": parent, "start_ticks": started,
+            "cmd": bgjobs.redact(line)[:160], "cpu_ticks": used}
+
+
+def _idle_candidates(proc: str, rules: _Rules) -> list[dict]:
+    """All current, top-level opted-in language servers and their tree CPU."""
+    processes = _processes(proc)
+    children = _children(processes)
+    return [candidate for pid in processes
+            if (candidate := _idle_candidate(proc, pid, rules, processes, children))]
+
+
+def _idle_row(proc: str, pid: int, now: float, boot: float | None, ticks: int,
+              rules: _Rules, state: dict[str, dict[str, float | int]]) -> dict | None:
+    """Re-judge one idle row from the recorded CPU state without changing it."""
+    processes = _processes(proc)
+    candidate = _idle_candidate(proc, pid, rules, processes, _children(processes))
+    return _idle_row_from_candidate(candidate, now, boot, ticks, rules, state)
+
+
+def _idle_row_from_candidate(candidate: dict | None, now: float, boot: float | None,
+                             ticks: int, rules: _Rules,
+                             state: dict[str, dict[str, float | int]]) -> dict | None:
+    """Turn an observed idle candidate into a row, without changing state."""
+    if not candidate:
+        return None
+    previous = state.get(_idle_key(candidate["pid"], candidate["start_ticks"]))
+    if (not previous or previous["ticks"] != candidate["cpu_ticks"]
+            or now - float(previous["since"]) < rules.idle_s):
+        return None
+    age = bgjobs._age(candidate["start_ticks"], boot, now, ticks)
+    if age is None:
+        return None
+    return {"pid": candidate["pid"], "ppid": candidate["ppid"],
+            "start_ticks": candidate["start_ticks"], "age_s": age,
+            "cmd": candidate["cmd"],
+            "why": f"idle language server, no CPU for {_span(rules.idle_s)}"}
+
+
+def _observe_idle(proc: str, now: float, boot: float | None, ticks: int,
+                  rules: _Rules, state: dict[str, dict[str, float | int]]) -> tuple[
+                      list[dict], dict[str, dict[str, float | int]]]:
+    """Observe eligible trees once, carrying forward only their current state."""
+    rows: list[dict] = []
+    current: dict[str, dict[str, float | int]] = {}
+    for candidate in _idle_candidates(proc, rules):
+        key = _idle_key(candidate["pid"], candidate["start_ticks"])
+        previous = state.get(key)
+        if previous and previous["ticks"] == candidate["cpu_ticks"]:
+            current[key] = previous
+        else:
+            current[key] = {"ticks": candidate["cpu_ticks"], "since": now}
+        row = _idle_row_from_candidate(candidate, now, boot, ticks, rules, current)
+        if row:
+            rows.append(row)
+    return rows, current
 
 
 def _snapshot(proc: str, pid: int) -> tuple[int, int, list[str]] | None:
@@ -247,10 +474,14 @@ def _judge_worker(proc: str, pid: int, now: float, boot: float | None, ticks: in
 
 
 def stuck(proc: str = "/proc", now: float | None = None,
-          minimum_age_s: int | None = None) -> list[dict]:
-    """The snapshot-shell jobs a pass would stop, oldest first, each with why:
-    orphans past ``job_reaper_after_min`` (or *minimum_age_s*) and, once
-    ``job_reaper_max_hours`` is set, jobs under a live session past it."""
+          minimum_age_s: int | None = None, *, directory: Path | None = None,
+          write_idle_state: bool = True) -> list[dict]:
+    """The jobs a pass would stop, oldest first, each with a reason.
+
+    In addition to snapshot-shell jobs, an enabled idle-language-server rule
+    observes its CPU state here. ``write_idle_state=False`` is for dry runs
+    and kill's re-judge, which may read that state but must not advance it.
+    """
     rules = _rules(minimum_age_s)
     if rules is None:
         return []
@@ -266,6 +497,16 @@ def stuck(proc: str = "/proc", now: float | None = None,
                 row = _judge(proc, int(name), moment, boot, ticks, rules)
                 if row:
                     rows.append(row)
+        if rules.idle is not None:
+            state = _idle_state(directory)
+            idle_rows, observed = _observe_idle(proc, moment, boot, ticks, rules, state)
+            existing = {row["pid"] for row in rows}
+            rows.extend(row for row in idle_rows if row["pid"] not in existing)
+            if write_idle_state:
+                _write_idle_state(observed, directory)
+        elif write_idle_state and idle_state_path(directory).exists():
+            # Turning the rule off cannot leave a timer's old observation live.
+            _write_idle_state({}, directory)
         return sorted(rows, key=lambda row: (-row["age_s"], row["pid"]))
     except (OSError, ValueError):
         return []
@@ -316,7 +557,8 @@ def _tree(proc: str, root: int) -> list[tuple[int, int]]:
 
 def kill(row: dict, proc: str = "/proc", *, signal_fn=None, sleep_fn=None,
          grace_s: float = GRACE_S, own_pid: int | None = None,
-         now: float | None = None, minimum_age_s: int | None = None) -> list[int]:
+         now: float | None = None, minimum_age_s: int | None = None,
+         directory: Path | None = None) -> list[int]:
     """Terminate a stuck snapshot-shell tree and return signalled pids.
 
     The root is judged again by stuck()'s rules before each SIGTERM, so a job
@@ -334,10 +576,15 @@ def kill(row: dict, proc: str = "/proc", *, signal_fn=None, sleep_fn=None,
         return []
     moment = time.time() if now is None else float(now)
     boot, ticks = bgjobs.boot_time(proc), bgjobs._clock_ticks()
+    idle_state = _idle_state(directory)
+    is_idle_row = str(row.get("why", "")).startswith("idle language server,")
 
     def still_stuck() -> bool:
         again = _judge(proc, root, moment, boot, ticks, rules)
-        return bool(again and again["start_ticks"] == start)
+        if again and again["start_ticks"] == start:
+            return True
+        idle_again = _idle_row(proc, root, moment, boot, ticks, rules, idle_state)
+        return bool(idle_again and idle_again["start_ticks"] == start)
 
     if not still_stuck():
         return []
@@ -352,6 +599,8 @@ def kill(row: dict, proc: str = "/proc", *, signal_fn=None, sleep_fn=None,
             return sent
         if not _same_process(proc, pid, started):
             continue
+        if is_claude(proc, pid) or (is_idle_row and not has_claude_ancestor(proc, pid)):
+            continue
         try:
             signal_fn(pid, signal.SIGTERM)
             sent.append(pid)
@@ -365,6 +614,8 @@ def kill(row: dict, proc: str = "/proc", *, signal_fn=None, sleep_fn=None,
         pass
     for pid, started in targets:
         if not _same_process(proc, pid, started):
+            continue
+        if is_claude(proc, pid) or (is_idle_row and not has_claude_ancestor(proc, pid)):
             continue
         try:
             signal_fn(pid, signal.SIGKILL)
@@ -398,9 +649,9 @@ def reap(proc: str = "/proc", directory: Path | None = None, now: float | None =
     """Kill and audit every currently stuck snapshot-shell job."""
     moment = time.time() if now is None else float(now)
     reaped = []
-    for row in stuck(proc, moment, minimum_age_s):
+    for row in stuck(proc, moment, minimum_age_s, directory=directory):
         sent = kill(row, proc, signal_fn=signal_fn, sleep_fn=sleep_fn,
-                    now=moment, minimum_age_s=minimum_age_s)
+                    now=moment, minimum_age_s=minimum_age_s, directory=directory)
         if sent:
             log_kill(row, directory, moment)
             reaped.append(row)
@@ -458,7 +709,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"job reaper: {why}")
             return 0
         if "--dry-run" in args:
-            rows = stuck()
+            rows = stuck(write_idle_state=False)
             for row in rows:
                 print(f"would kill pid={row['pid']} age={row['age_s'] / 3600:.1f}h "
                       f"why={row['why']} cmd={row['cmd']}")

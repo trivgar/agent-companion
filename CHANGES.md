@@ -2,6 +2,13 @@
 
 What moved, and whether your settings need anything. Newest first.
 
+## 2026-11-16
+- The job reaper can now stop configured language servers below a live session
+  once their whole process tree has used no CPU for `job_reaper_idle_hours`
+  (2 by default). Set `job_reaper_idle` to opt in; its small local state lets
+  a later pass measure the idle span, and a matching `job_reaper_keep` still
+  protects a command.
+
 ## 2026-11-11
 - Merge queue: when a red batch's failures pass on main and with each branch alone,
   only those tests run again on the batch, not the whole suite, and it lands if they
