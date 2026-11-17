@@ -101,7 +101,7 @@ class GmailSource:
               "<<<DRAFT_BODY_DATA\n" + body.replace("DRAFT_BODY_DATA", "DRAFT BODY DATA") + "\nDRAFT_BODY_DATA>>>\n\n"
               'When the draft exists reply with ONLY its id (the "id" the tool returned). '
               "If the tool failed reply with ERROR and why.",
-            approver_allowed_tools(), timeout=120)
+            approver_allowed_tools(), timeout=120, need_tools=PREFIX)
         ids = _ID.findall(out.replace("\r", ""))
         if not ids:
             raise RuntimeError("no draft id back: " + out.strip()[:120])
