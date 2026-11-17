@@ -50,7 +50,12 @@ MAX_TAIL_BYTES = 4_800_000    # how far back a window reads when the tail is sho
 KEEP = 400                    # sends remembered
 MAX_TEXT = 4000
 INPUT_APPEAR_WAIT_S = 3.0
-INPUT_CLEAR_WAIT_S = 3.0
+# A busy session once accepted a message 0.23 s after an older 1.3 s deadline.
+INPUT_CLEAR_WAIT_S = 5.0
+# An Enter that lands as part of a paste becomes a newline in the box: press it
+# again, at most this many more times, while the words still show.
+ENTER_RETRIES = 2
+ENTER_RETRY_EVERY_S = 1.0
 INPUT_CHECK_S = 0.1
 MAX_UPLOAD = 20 * 1024 * 1024
 MAX_UPLOAD_ENCODED = (MAX_UPLOAD * 4 + 2) // 3 + 4 * 1024
@@ -411,16 +416,25 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
         # Success needs both halves of the observation: it appeared before
         # Enter, and a parsable input box then no longer contains it.
         clear_deadline = time.monotonic() + max(0.0, clear_wait_s)
+        # Counted in polls, not the clock, so a fake sleep in a test behaves
+        # as the real one does.
+        retry_every = max(1, round(ENTER_RETRY_EVERY_S / max(check_s, 0.001)))
+        retries, since_enter = 0, 0
         for _ in range(_input_polls(clear_wait_s, check_s)):
             remaining = clear_deadline - time.monotonic()
             if remaining <= 0:
                 break
             sleep(min(check_s, remaining))
             timeout = min(5, max(.001, clear_deadline - time.monotonic()))
-            if _still_in_box(target["pane"], line, run, timeout) is False:
+            seen = _still_in_box(target["pane"], line, run, timeout)
+            if seen is False:
                 return True, ""
             if target_waiting(target):
                 return not_confirmed("it opened a dialog before the send could be confirmed")
+            since_enter += 1
+            if seen is True and retries < ENTER_RETRIES and since_enter >= retry_every:
+                run(["tmux", "send-keys", "-t", target["pane"], "Enter"], check=True, timeout=5)
+                retries, since_enter = retries + 1, 0
     except (OSError, subprocess.SubprocessError) as exc:
         detail = f"tmux refused: {str(exc)[:80]}"
         return not_confirmed(detail) if typed else (False, detail)

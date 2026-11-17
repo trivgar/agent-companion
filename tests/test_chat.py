@@ -133,10 +133,22 @@ def test_send_is_not_confirmed_when_box_is_unparseable_after_enter(monkeypatch):
 def test_send_is_not_confirmed_when_words_remain_after_enter(monkeypatch):
     monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
     run = Screen(before=["two board posts"], after=["two board posts"])
+    monkeypatch.setattr(chat, "ENTER_RETRY_EVERY_S", 0)
     ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=lambda s: None,
-                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+                        appear_wait_s=.01, clear_wait_s=.05, check_s=.01)
     assert not ok and why.startswith("typed, not confirmed")
-    assert sum(c[-1] == "Enter" for c in run.calls if "send-keys" in c) == 1
+    # the first Enter and its two retries, no more
+    assert sum(c[-1] == "Enter" for c in run.calls if "send-keys" in c) == 1 + chat.ENTER_RETRIES
+
+
+def test_send_presses_enter_again_when_the_first_became_a_newline(monkeypatch):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    monkeypatch.setattr(chat, "ENTER_RETRY_EVERY_S", 0)
+    run = Screen(before=["two board posts"], after=["two board posts", ""])
+    ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.05, check_s=.01)
+    assert ok, why
+    assert sum(c[-1] == "Enter" for c in run.calls if "send-keys" in c) == 2
 
 
 def test_nothing_is_typed_when_the_session_is_not_in_front(monkeypatch):
