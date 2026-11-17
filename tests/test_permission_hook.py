@@ -66,6 +66,65 @@ def test_a_question_hands_back_the_picks_as_the_tools_own(monkeypatch):
     assert got["updatedInput"]["questions"] == _event("question")["tool_input"]["questions"]
 
 
+def _recorded_question(tmp_path, question="Ship?"):
+    tool_use_id = "toolu_123"
+    transcript = tmp_path / "transcript.jsonl"
+    return {
+        **_event("question"),
+        "tool_use_id": tool_use_id,
+        "transcript_path": str(transcript),
+        "tool_input": {"questions": [{"question": question, "options": [{"label": "Yes"}]}]},
+    }, transcript, tool_use_id
+
+
+def _question_posted(monkeypatch, event):
+    posted = []
+    monkeypatch.setattr(h, "waiting", lambda ev: "")
+    monkeypatch.setattr(h, "holding", lambda ev: None)
+    monkeypatch.setattr(h, "still_waiting", lambda *args: None)
+    monkeypatch.setattr(h.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(h, "_post", lambda *args: posted.append(args) or {})
+    monkeypatch.setattr(h, "FLUSH_S", 0)
+    monkeypatch.setattr(h.time, "sleep", lambda seconds: None)
+    assert h.question(event) == 0
+    return posted
+
+
+def test_a_question_in_the_transcript_is_asked(monkeypatch, tmp_path):
+    event, transcript, tool_use_id = _recorded_question(tmp_path)
+    transcript.write_text('{"tool_use_id": "' + tool_use_id + '"}\n')
+    assert _question_posted(monkeypatch, event)
+
+
+def test_an_unrecorded_prompt_suggestion_is_dropped(monkeypatch, tmp_path):
+    event, _, _ = _recorded_question(tmp_path, "Pick the suggestion that matches what the user might type next")
+    monkeypatch.setattr(h, "RECORD_S", 0)
+    assert _question_posted(monkeypatch, event) == []
+
+
+def test_an_unrecorded_ordinary_question_is_asked(monkeypatch, tmp_path):
+    event, _, _ = _recorded_question(tmp_path)
+    monkeypatch.setattr(h, "RECORD_S", 0)
+    assert _question_posted(monkeypatch, event)
+
+
+def test_a_subagent_question_is_asked_without_a_transcript(monkeypatch, tmp_path):
+    event, _, _ = _recorded_question(tmp_path, "Pick the suggestion that matches what the user might type next")
+    event["agent_id"] = "agent-1"
+    assert _question_posted(monkeypatch, event)
+
+
+def test_an_unreadable_transcript_uses_the_side_query_rule(monkeypatch, tmp_path):
+    event, transcript, _ = _recorded_question(tmp_path, "Pick the suggestion that matches what the user might type next")
+    transcript.write_text("unrelated transcript line\n")
+
+    def unreadable(*args, **kwargs):
+        raise PermissionError("unreadable")
+
+    monkeypatch.setattr("builtins.open", unreadable)
+    assert _question_posted(monkeypatch, event) == []
+
+
 def test_a_permission_hands_back_allow_or_deny(monkeypatch):
     for st, want in (("allow", "allow"), ("deny", "deny")):
         out, _, _ = _run(monkeypatch, "permission", lambda t, st=st: {"ok": True, "status": st})

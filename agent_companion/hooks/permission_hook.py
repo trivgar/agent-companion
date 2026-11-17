@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import sys
 import time
@@ -41,6 +42,13 @@ POST_S = 25                    # past the push the dashboard sends before it ans
 FLUSH_S = 0.3                  # past Claude Code's 100 ms transcript drain
 UNSHOWN_S = 540                # a session that never shows it as a prompt
 EVERY_S = 1.5
+RECORD_S = 5
+RECORD_POLL_S = 0.1
+
+
+# A prompt-suggestion side query asks the model to choose what the user might
+# say next. It has no transcript entry, even though its PreToolUse hook runs.
+_SIDE_QUERY = re.compile(r"\bsuggestion\b.*\b(?:type|say|send)s? next\b", re.I | re.S)
 
 
 def _url() -> str:
@@ -128,6 +136,41 @@ def answered(inp: dict, answers: dict) -> str:
         "updatedInput": dict(inp, answers=answers)}})
 
 
+def on_the_record(ev: dict) -> bool:
+    """Whether this question appears in its session transcript.
+
+    A subagent's transcript is separate, so its questions are always shown.
+    Missing or unreadable transcripts are not evidence that a question is a
+    side query; callers use ``side_query`` to decide those cases.
+    """
+    tool_use_id = str(ev.get("tool_use_id") or "")
+    transcript_path = str(ev.get("transcript_path") or "")
+    if ev.get("agent_id") or not tool_use_id or not transcript_path:
+        return True
+    needle = tool_use_id.encode()
+    end = time.monotonic() + RECORD_S
+    while True:
+        try:
+            with open(transcript_path, "rb") as transcript:
+                transcript.seek(0, os.SEEK_END)
+                transcript.seek(max(0, transcript.tell() - 1_000_000))
+                if needle in transcript.read():
+                    return True
+        except OSError:
+            return False
+        if time.monotonic() >= end:
+            return False
+        time.sleep(RECORD_POLL_S)
+
+
+def side_query(inp: dict) -> bool:
+    return any(
+        isinstance(question, dict)
+        and _SIDE_QUERY.search(str(question.get("question") or ""))
+        for question in inp.get("questions") or []
+    )
+
+
 def _post(ev: dict, who: str, tool: str, inp: dict) -> dict:
     try:
         a = _call("/api/asks", {"speaker": who, "project": Path(str(ev.get("cwd") or "")).name,
@@ -151,6 +194,8 @@ def _withdrawer(ask):
 def question(ev: dict) -> int:
     inp = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
     if not inp.get("questions") or inp.get("answers"):
+        return 0
+    if not on_the_record(ev) and side_query(inp):
         return 0
     who = waiting(ev)
     me, parent = holding(ev), os.getppid()          # found now, while its tree is whole
