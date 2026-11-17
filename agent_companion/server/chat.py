@@ -670,7 +670,10 @@ def _conversation(transcript: Path, limit: int, tail_bytes: int) -> list[dict]:
                     flush_work(at)
                     out.append({"role": "me", "at": at, "text": t, "id": d.get("uuid") or f"q{at}"})
             continue
-        if typ not in ("user", "assistant") or d.get("isSidechain") or d.get("isMeta"):
+        # A compaction's summary is a user record Claude Code wrote, not the
+        # owner's words: shown, it drew a page of summary as his message.
+        if (typ not in ("user", "assistant") or d.get("isSidechain") or d.get("isMeta")
+                or d.get("isCompactSummary")):
             continue
         at = _ts(d.get("timestamp"))
         if at is None:

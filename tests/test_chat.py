@@ -211,6 +211,19 @@ def test_one_sessions_window_is_prompts_replies_and_work_between(tmp_path):
     assert got[1]["tools"] == ["Bash"] and got[1]["last"] == "Bash: ls -la"
 
 
+
+def test_a_compaction_summary_is_not_the_owners_message(tmp_path):
+    f = _lines(tmp_path, [
+        {"type": "user", "timestamp": "2026-01-01T00:00:00Z", "uuid": "u1", "message": {"content": "do it"}},
+        {"type": "user", "timestamp": "2026-01-01T00:00:05Z", "uuid": "c1", "isCompactSummary": True,
+         "isVisibleInTranscriptOnly": True,
+         "message": {"content": "This session is being continued from a previous conversation..."}},
+        {"type": "assistant", "timestamp": "2026-01-01T00:00:06Z", "uuid": "a1", "message": {
+            "model": "m", "content": [{"type": "text", "text": "Carrying on."}]}},
+    ])
+    assert [(m["role"], m["text"]) for m in chat.conversation(f)] == [("me", "do it"), ("agent", "Carrying on.")]
+
+
 def test_a_question_is_in_the_window_with_its_choices_and_the_pick(tmp_path):
     q = {"questions": [{"question": "Which nav?", "options": [{"label": "Five"}, {"label": "Leave"}]}]}
     f = _lines(tmp_path, [
