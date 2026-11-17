@@ -29,7 +29,7 @@ def test_send_never_enters_when_a_dialog_appears_after_the_words(monkeypatch):
 
     ok, detail = chat.send(TARGET, "continue", run=run, sleep=lambda _: None)
 
-    assert (ok, detail) == (False, "it opened a dialog, not sent")
+    assert detail.startswith("typed, not confirmed: it opened a dialog") and not ok
     assert run.calls == [["tmux", "send-keys", "-t", "%3", "-l", "--", "continue"]]
 
 
@@ -42,7 +42,7 @@ def test_send_never_retries_enter_when_a_dialog_appears(monkeypatch):
 
     ok, detail = chat.send(TARGET, "continue", run=run, sleep=lambda _: None)
 
-    assert (ok, detail) == (False, "it opened a dialog, not sent")
+    assert detail.startswith("typed, not confirmed: it opened a dialog") and not ok
     assert run.calls == [["tmux", "send-keys", "-t", "%3", "-l", "--", "continue"],
                          ["tmux", "send-keys", "-t", "%3", "Enter"]]
 

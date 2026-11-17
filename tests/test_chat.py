@@ -64,8 +64,9 @@ def _box(*rows):
 
 def test_send_types_one_line_then_enter(monkeypatch):
     monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])   # pgrp == tpgid
-    run = Run()
-    ok, why = chat.send(KNOWN["ada"], "push it\nplease", run=run, sleep=lambda s: None)
+    run = Screen(before=["push it please"], after=[""])
+    ok, why = chat.send(KNOWN["ada"], "push it\nplease", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
     assert ok, why
     keys = [c for c in run.calls if "send-keys" in c]
     assert keys == [["tmux", "send-keys", "-t", "%3", "-l", "--", "push it please"],
@@ -80,55 +81,74 @@ def test_parse_input_reads_what_sits_in_the_box():
 
 
 class Screen(Run):
-    """tmux whose input box keeps the words for the first `stuck` captures."""
-    def __init__(self, words, stuck):
+    """Fake tmux input-box states before and after its first Enter."""
+    def __init__(self, before, after):
         super().__init__()
-        self.words, self.stuck, self.seen, self.slept = words, stuck, 0, []
+        self.before, self.after = before, after
+        self.before_seen = self.after_seen = 0
 
     def __call__(self, args, **kw):
         if "capture-pane" not in args:
             return super().__call__(args, **kw)
         self.calls.append(args)
-        self.seen += 1
-        text = _box(self.words if self.seen <= self.stuck else "")
+        entered = any(call[-1] == "Enter" for call in self.calls if "send-keys" in call)
+        states, seen = (self.after, self.after_seen) if entered else (self.before, self.before_seen)
+        value = states[min(seen, len(states) - 1)]
+        if entered:
+            self.after_seen += 1
+        else:
+            self.before_seen += 1
         class R:
-            stdout = text
+            stdout = "no input box" if value is None else _box(*(value if isinstance(value, tuple) else (value,)))
         return R()
 
 
-def test_an_enter_that_became_a_newline_is_pressed_again(monkeypatch):
+def test_send_confirms_words_show_then_clear(monkeypatch):
     monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
-    run = Screen("two board posts", stuck=1)
-    ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=run.slept.append)
+    run = Screen(before=[("two board", " posts")], after=[""])
+    ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
     assert ok, why
-    assert [c[-1] for c in run.calls if "send-keys" in c] == ["two board posts", "Enter", "Enter"]
-    assert run.slept[0] == chat.SUBMIT_GAP_S
+    assert [c[-1] for c in run.calls if "send-keys" in c] == ["two board posts", "Enter"]
 
 
-def test_words_that_never_submit_say_so(monkeypatch):
+def test_send_does_not_enter_when_words_never_show(monkeypatch):
     monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
-    run = Screen("two board posts", stuck=99)
-    ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=lambda s: None)
-    assert not ok and "still in its box" in why
-    assert sum(c[-1] == "Enter" for c in run.calls) == 1 + chat.SUBMIT_RETRIES
+    run = Screen(before=[""], after=[])
+    ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and why.startswith("typed, not confirmed")
+    assert not any(c[-1] == "Enter" for c in run.calls if "send-keys" in c)
 
 
-def test_words_clear_after_five_looks_are_sent(monkeypatch):
+def test_send_is_not_confirmed_when_box_is_unparseable_after_enter(monkeypatch):
     monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
-    run = Screen("two board posts", stuck=5)
-    ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=lambda s: None)
+    run = Screen(before=["two board posts"], after=[None])
+    ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and why.startswith("typed, not confirmed")
+    assert sum(c[-1] == "Enter" for c in run.calls if "send-keys" in c) == 1
+
+
+def test_send_is_not_confirmed_when_words_remain_after_enter(monkeypatch):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    run = Screen(before=["two board posts"], after=["two board posts"])
+    monkeypatch.setattr(chat, "ENTER_RETRY_EVERY_S", 0)
+    ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.05, check_s=.01)
+    assert not ok and why.startswith("typed, not confirmed")
+    # the first Enter and its two retries, no more
+    assert sum(c[-1] == "Enter" for c in run.calls if "send-keys" in c) == 1 + chat.ENTER_RETRIES
+
+
+def test_send_presses_enter_again_when_the_first_became_a_newline(monkeypatch):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    monkeypatch.setattr(chat, "ENTER_RETRY_EVERY_S", 0)
+    run = Screen(before=["two board posts"], after=["two board posts", ""])
+    ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.05, check_s=.01)
     assert ok, why
-    assert sum(c[-1] == "Enter" for c in run.calls) == 1 + chat.SUBMIT_RETRIES
-
-
-def test_words_that_never_clear_wait_for_every_look(monkeypatch):
-    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
-    looks = int(chat.SUBMIT_WAIT_S / chat.SUBMIT_CHECK_S)
-    run = Screen("two board posts", stuck=looks)
-    ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=lambda s: None)
-    assert not ok and "still in its box" in why
-    assert run.seen == looks
-    assert sum(c[-1] == "Enter" for c in run.calls) == 1 + chat.SUBMIT_RETRIES
+    assert sum(c[-1] == "Enter" for c in run.calls if "send-keys" in c) == 2
 
 
 def test_nothing_is_typed_when_the_session_is_not_in_front(monkeypatch):

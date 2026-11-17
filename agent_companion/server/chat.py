@@ -26,6 +26,7 @@ import binascii
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import secrets
@@ -48,10 +49,14 @@ TAIL_BYTES = 600_000          # of each transcript: a reply is near the end
 MAX_TAIL_BYTES = 4_800_000    # how far back a window reads when the tail is short
 KEEP = 400                    # sends remembered
 MAX_TEXT = 4000
-SUBMIT_GAP_S = 0.3
-SUBMIT_CHECK_S = 0.5
-SUBMIT_RETRIES = 2
-SUBMIT_WAIT_S = 5.0
+INPUT_APPEAR_WAIT_S = 3.0
+# A busy session once accepted a message 0.23 s after an older 1.3 s deadline.
+INPUT_CLEAR_WAIT_S = 5.0
+# An Enter that lands as part of a paste becomes a newline in the box: press it
+# again, at most this many more times, while the words still show.
+ENTER_RETRIES = 2
+ENTER_RETRY_EVERY_S = 1.0
+INPUT_CHECK_S = 0.1
 MAX_UPLOAD = 20 * 1024 * 1024
 MAX_UPLOAD_ENCODED = (MAX_UPLOAD * 4 + 2) // 3 + 4 * 1024
 KEEP_UPLOADS_S = 30 * 86400
@@ -270,15 +275,28 @@ def parse_input(screen: str) -> str | None:
     return None
 
 
-def _still_in_box(pane: str, line: str, run) -> bool:
+def _still_in_box(pane: str, line: str, run, timeout: float = 5) -> bool | None:
+    """Whether the typed tail is still visible in the input box.
+
+    ``None`` means tmux did not provide an input box we could parse.  That is
+    deliberately distinct from ``False``: an unreadable box cannot confirm
+    that the words have cleared.
+    """
     try:
         screen = run(["tmux", "capture-pane", "-e", "-p", "-t", pane],
-                     capture_output=True, text=True, timeout=5).stdout or ""
+                     capture_output=True, text=True, timeout=timeout).stdout or ""
     except (OSError, subprocess.SubprocessError):
-        return False
+        return None
     box = parse_input(screen)
+    if box is None:
+        return None
     tail = "".join(line.split())[-24:]
-    return bool(box and tail and tail in "".join(box.split()))
+    return bool(tail and tail in "".join(box.split()))
+
+
+def _input_polls(wait_s: float, check_s: float) -> int:
+    """A finite number of pane captures for one input-box confirmation."""
+    return max(1, math.ceil(max(0.0, wait_s) / max(check_s, 0.001)))
 
 
 def target_waiting(target: dict) -> bool:
@@ -351,9 +369,16 @@ def confirm_model(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
     return _confirm_dialog(target, "Switch model?", yes, run, sleep, tries, every)
 
 
-def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep) -> tuple[bool, str]:
-    """Type `text` into the target's pane and press Enter. One line: a newline
-    would submit early, so newlines become spaces."""
+def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
+         appear_wait_s: float = INPUT_APPEAR_WAIT_S,
+         clear_wait_s: float = INPUT_CLEAR_WAIT_S,
+         check_s: float = INPUT_CHECK_S) -> tuple[bool, str]:
+    """Type `text` into the target's pane and confirm that Enter submitted it.
+
+    One line: a newline would submit early, so newlines become spaces.  The
+    confirmation waits are arguments so callers of this low-level helper can
+    keep fake-tmux tests immediate.
+    """
     # Claude Code's own word first: "waiting" from the moment a prompt or a
     # question shows in its window. Keys typed into a dialog answer it.
     if target_waiting(target):
@@ -362,26 +387,58 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep) -> tuple
     if not ok:
         return False, why
     line = " ".join(str(text).split())[:MAX_TEXT]
+    typed = False
+
+    def not_confirmed(detail: str) -> tuple[bool, str]:
+        return False, f"typed, not confirmed: {detail}"
+
     try:
         run(["tmux", "send-keys", "-t", target["pane"], "-l", "--", line], check=True, timeout=5)
-        # Words and Enter in one burst read as a paste, and the Enter becomes a
-        # newline in the box: a pause between them, then a look.
-        sleep(SUBMIT_GAP_S)
-        if target_waiting(target):
-            return False, "it opened a dialog, not sent"
+        typed = True
+        # Do not press Enter until the terminal has redrawn the words we sent.
+        # A stalled or unreadable pane is not evidence that its input is clear.
+        appeared = False
+        appear_deadline = time.monotonic() + max(0.0, appear_wait_s)
+        for _ in range(_input_polls(appear_wait_s, check_s)):
+            remaining = appear_deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            sleep(min(check_s, remaining))
+            if target_waiting(target):
+                return not_confirmed("it opened a dialog; Enter was not pressed")
+            timeout = min(5, max(.001, appear_deadline - time.monotonic()))
+            if _still_in_box(target["pane"], line, run, timeout) is True:
+                appeared = True
+                break
+        if not appeared:
+            return not_confirmed("the input box never showed the typed words; Enter was not pressed")
         run(["tmux", "send-keys", "-t", target["pane"], "Enter"], check=True, timeout=5)
-        # A busy session once accepted a message 0.23 s after the old 1.3 s deadline.
-        for attempt in range(int(SUBMIT_WAIT_S / SUBMIT_CHECK_S)):
-            sleep(SUBMIT_CHECK_S)
-            if not _still_in_box(target["pane"], line, run):
+        # Success needs both halves of the observation: it appeared before
+        # Enter, and a parsable input box then no longer contains it.
+        clear_deadline = time.monotonic() + max(0.0, clear_wait_s)
+        # Counted in polls, not the clock, so a fake sleep in a test behaves
+        # as the real one does.
+        retry_every = max(1, round(ENTER_RETRY_EVERY_S / max(check_s, 0.001)))
+        retries, since_enter = 0, 0
+        for _ in range(_input_polls(clear_wait_s, check_s)):
+            remaining = clear_deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            sleep(min(check_s, remaining))
+            timeout = min(5, max(.001, clear_deadline - time.monotonic()))
+            seen = _still_in_box(target["pane"], line, run, timeout)
+            if seen is False:
                 return True, ""
             if target_waiting(target):
-                return False, "it opened a dialog, not sent"
-            if attempt < SUBMIT_RETRIES:
+                return not_confirmed("it opened a dialog before the send could be confirmed")
+            since_enter += 1
+            if seen is True and retries < ENTER_RETRIES and since_enter >= retry_every:
                 run(["tmux", "send-keys", "-t", target["pane"], "Enter"], check=True, timeout=5)
+                retries, since_enter = retries + 1, 0
     except (OSError, subprocess.SubprocessError) as exc:
-        return False, f"tmux refused: {str(exc)[:80]}"
-    return False, f"typed, but {target['name']} did not take the Enter; the words are still in its box"
+        detail = f"tmux refused: {str(exc)[:80]}"
+        return not_confirmed(detail) if typed else (False, detail)
+    return not_confirmed("the typed words did not clear from a parsable input box")
 
 
 def stop(target: dict, run=subprocess.run) -> tuple[bool, str]:
