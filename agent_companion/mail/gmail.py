@@ -72,7 +72,7 @@ class GmailSource:
               "Leave out any thread whose newest message carries the SENT label (the owner has already "
               "answered it). Reply with a JSON array and nothing else, one object per message: "
               '{"id","thread","from","to","subject","date","snippet"}. Empty array if none.',
-            drafter_allowed_tools())
+            drafter_allowed_tools(), need_tools=PREFIX)
         return [m for m in _json(out, "[") if isinstance(m, dict) and m.get("id")]
 
     def read(self, msg_id: str) -> dict:
@@ -82,7 +82,7 @@ class GmailSource:
             _PREAMBLE + f"Read the message with id {msg_id}. Reply with one JSON object and nothing else: "
             '{"id","thread","from","to","subject","date","body"} where body is the plain text of the '
             "message, without quoted history.",
-            drafter_allowed_tools())
+            drafter_allowed_tools(), need_tools=PREFIX)
         return _json(out, "{")
 
     def create_draft(self, thread_id: str, to: str, subject: str, body: str) -> str:
@@ -101,7 +101,7 @@ class GmailSource:
               "<<<DRAFT_BODY_DATA\n" + body.replace("DRAFT_BODY_DATA", "DRAFT BODY DATA") + "\nDRAFT_BODY_DATA>>>\n\n"
               'When the draft exists reply with ONLY its id (the "id" the tool returned). '
               "If the tool failed reply with ERROR and why.",
-            approver_allowed_tools(), timeout=120)
+            approver_allowed_tools(), timeout=120, need_tools=PREFIX)
         ids = _ID.findall(out.replace("\r", ""))
         if not ids:
             raise RuntimeError("no draft id back: " + out.strip()[:120])

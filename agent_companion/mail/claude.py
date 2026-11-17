@@ -2,6 +2,7 @@
 variadic and swallows a positional prompt after it."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -54,6 +55,7 @@ def _configured_servers() -> list[str]:
 
 def build_command(allowed=(), model: str | None = None) -> list[str]:
     cmd = [binary(), "-p", "--model", model or str(config.get("mail_model", DEFAULT_MODEL)),
+           "--output-format", "stream-json", "--verbose",
            "--permission-mode", "default",
            # no user/project/local settings: the owner's defaultMode, hooks and allow rules never apply.
            # (--strict-mcp-config is NOT used: it drops the claude.ai Gmail connector, checked live.)
@@ -81,11 +83,17 @@ def build_env() -> dict:
     return env
 
 
-def run(prompt: str, allowed=(), timeout: int = 300, model: str | None = None) -> str:
+def run(prompt: str, allowed=(), timeout: int = 300, model: str | None = None,
+        need_tools: str | None = None) -> str:
     """The model's whole answer. Raises RuntimeError on a failed run.
 
     `allowed` is the complete tool list for the run. Empty means no tool is
-    named at all; a headless run has nobody to approve anything else."""
+    named at all; a headless run has nobody to approve anything else.
+
+    When `need_tools` is set, the stream must contain a real assistant
+    ``tool_use`` block whose name starts with that prefix. This lets a caller
+    reject an answer that only typed a purported tool call as text.
+    """
     cmd, env = build_command(allowed, model), build_env()
     try:
         with tempfile.TemporaryDirectory(prefix="cc-mail-") as cwd:   # fresh and empty: nothing to read here
@@ -95,4 +103,35 @@ def run(prompt: str, allowed=(), timeout: int = 300, model: str | None = None) -
         raise RuntimeError(f"claude did not run: {exc}") from exc
     if p.returncode != 0:
         raise RuntimeError(f"claude exited {p.returncode}: {(p.stderr or p.stdout)[-200:]}")
-    return p.stdout
+
+    result_seen = False
+    result_text = None
+    tool_uses = 0
+    for line in p.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "assistant":
+            message = event.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            if isinstance(content, list):
+                tool_uses += sum(
+                    isinstance(block, dict)
+                    and block.get("type") == "tool_use"
+                    and isinstance(block.get("name"), str)
+                    and block["name"].startswith(need_tools or _GMAIL)
+                    for block in content)
+        if event.get("type") == "result":
+            result_seen = True
+            result_text = event.get("result") if isinstance(event.get("result"), str) else None
+
+    if not result_seen:
+        raise RuntimeError("claude stream had no result event")
+    if result_text is None:
+        raise RuntimeError("claude result event had no text")
+    if need_tools and not tool_uses:
+        raise RuntimeError(f"claude made no real tool call matching {need_tools!r}")
+    return result_text
