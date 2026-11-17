@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 from . import claude
-from .gmail import drafter_allowed_tools
+from .gmail import PREFIX, drafter_allowed_tools
 from .. import config
 
 PROMPT = Path(__file__).with_name("prompts") / "voice_guide.md"
@@ -29,7 +29,8 @@ def load() -> str:
 
 
 def build() -> Path:
-    text = claude.run(PROMPT.read_text(), drafter_allowed_tools(), timeout=600).strip()
+    text = claude.run(PROMPT.read_text(), drafter_allowed_tools(), timeout=600,
+                      need_tools=PREFIX).strip()
     if len(text) < 20:
         raise RuntimeError("the guide came back empty")
     p = path()

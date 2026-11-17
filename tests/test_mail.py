@@ -143,11 +143,20 @@ def test_no_send_code_in_the_mail_package_or_scripts():
 
 class Run:
     def __init__(self, outs):
-        self.outs, self.calls = list(outs), []
+        self.outs, self.calls, self.kwargs = list(outs), [], []
 
     def __call__(self, prompt, allowed=(), **kw):
         self.calls.append((prompt, list(allowed)))
+        self.kwargs.append(kw)
         return self.outs.pop(0)
+
+
+def _stream(*events):
+    return "\n".join(json.dumps(event) for event in events)
+
+
+def _result(text):
+    return _stream({"type": "result", "result": text})
 
 
 def test_gmail_source_uses_read_tools_to_list_and_create_tool_to_draft(monkeypatch):
@@ -162,6 +171,9 @@ def test_gmail_source_uses_read_tools_to_list_and_create_tool_to_draft(monkeypat
     assert src.create_draft("t1", "a@example.com", "Re: s", "body") == "draft_abc12345"
     assert run.calls[0][1] == gmail.drafter_allowed_tools()
     assert run.calls[2][1] == gmail.approver_allowed_tools()
+    assert run.kwargs[0]["need_tools"] == gmail.PREFIX
+    assert run.kwargs[1]["need_tools"] == gmail.PREFIX
+    assert "need_tools" not in run.kwargs[2]
 
 
 def test_a_draft_id_must_look_like_one(monkeypatch):
@@ -201,6 +213,7 @@ def test_voice_guide_is_built_with_read_tools_into_the_configured_file(tmp_path,
     assert p == tmp_path / "voice.md" and "Short. Warm." in p.read_text()
     assert oct(p.stat().st_mode & 0o777) == "0o600"
     assert run.calls[0][1] == gmail.drafter_allowed_tools()
+    assert run.kwargs[0]["need_tools"] == gmail.PREFIX
     assert voice_guide.load().startswith("# How you write")
 
 
@@ -209,7 +222,7 @@ def test_claude_is_run_with_the_prompt_on_stdin(monkeypatch):
     seen = {}
 
     class P:
-        returncode, stdout, stderr = 0, "ok", ""
+        returncode, stdout, stderr = 0, _result("ok"), ""
 
     def fake(cmd, **kw):
         seen["cmd"], seen["input"] = cmd, kw.get("input")
@@ -219,6 +232,73 @@ def test_claude_is_run_with_the_prompt_on_stdin(monkeypatch):
     assert claude.run("PROMPT", ["A", "B"]) == "ok"
     assert seen["input"] == "PROMPT" and "PROMPT" not in seen["cmd"]
     assert seen["cmd"][seen["cmd"].index("--allowedTools") + 1:][:2] == ["A", "B"]
+    assert seen["cmd"][seen["cmd"].index("--output-format") + 1] == "stream-json"
+    assert "--verbose" in seen["cmd"]
+
+
+def test_claude_counts_real_gmail_tool_use(monkeypatch):
+    from agent_companion.mail import claude
+
+    class P:
+        returncode, stderr = 0, ""
+        stdout = _stream(
+            {"type": "assistant", "message": {"content": [
+                {"type": "text", "text": "Looking it up."},
+                {"type": "tool_use", "name": gmail.PREFIX + "search_threads", "input": {}},
+            ]}},
+            {"type": "result", "result": "mail result"},
+        )
+
+    monkeypatch.setattr(claude.subprocess, "run", lambda *args, **kwargs: P())
+    monkeypatch.setenv("CLAUDE_BIN", "/bin/true")
+    assert claude.run("PROMPT", gmail.drafter_allowed_tools(), need_tools=gmail.PREFIX) == "mail result"
+
+
+def test_gmail_reader_rejects_a_typed_out_tool_call(monkeypatch):
+    from agent_companion.mail import claude
+
+    typed_call = json.dumps({"type": "tool_use", "name": gmail.PREFIX + "search_threads"})
+
+    class P:
+        returncode, stderr = 0, ""
+        stdout = _stream(
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": typed_call}]}},
+            {"type": "result", "result": "[]"},
+        )
+
+    monkeypatch.setattr(claude.subprocess, "run", lambda *args, **kwargs: P())
+    monkeypatch.setenv("CLAUDE_BIN", "/bin/true")
+    with pytest.raises(RuntimeError, match="no real tool call"):
+        gmail.GmailSource().list_new(0)
+
+
+def test_claude_non_mail_run_returns_unchanged_result_after_malformed_lines(monkeypatch):
+    from agent_companion.mail import claude
+    result = "[\n  {\"id\": \"draft_12345678\"}\n]"
+
+    class P:
+        returncode, stderr = 0, ""
+        stdout = "not JSON\n" + _stream(
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "draft"}]}},
+            {"type": "result", "result": result},
+        )
+
+    monkeypatch.setattr(claude.subprocess, "run", lambda *args, **kwargs: P())
+    monkeypatch.setenv("CLAUDE_BIN", "/bin/true")
+    assert claude.run("PROMPT", []) == result
+
+
+def test_claude_requires_a_result_event(monkeypatch):
+    from agent_companion.mail import claude
+
+    class P:
+        returncode, stderr = 0, ""
+        stdout = _stream({"type": "assistant", "message": {"content": []}})
+
+    monkeypatch.setattr(claude.subprocess, "run", lambda *args, **kwargs: P())
+    monkeypatch.setenv("CLAUDE_BIN", "/bin/true")
+    with pytest.raises(RuntimeError, match="no result event"):
+        claude.run("PROMPT", [])
 
 
 # ---- walls added after the security review ----
@@ -266,7 +346,7 @@ def test_headless_run_uses_an_empty_temp_cwd_and_a_minimal_env(monkeypatch):
     seen = {}
 
     class P:
-        returncode, stdout, stderr = 0, "ok", ""
+        returncode, stdout, stderr = 0, _result("ok"), ""
 
     def fake(cmd, **kw):
         seen.update(kw)
