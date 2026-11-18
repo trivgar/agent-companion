@@ -2,6 +2,12 @@
 
 What moved, and whether your settings need anything. Newest first.
 
+## 2026-11-18
+- Live interactive Codex CLI sessions (`codex`, not `codex exec`) get a card
+  beside Claude's and a chat window: messages read from the session's rollout
+  and sent with `codex queue`. Cost shows as not priced. Nothing to set: the
+  Codex home is the existing `codex_home` setting.
+
 ## 2026-11-16
 - The job reaper can now stop configured language servers below a live session
   once their whole process tree has used no CPU for `job_reaper_idle_hours`

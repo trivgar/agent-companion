@@ -39,6 +39,8 @@ from pathlib import Path
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
+from agent_companion import codex_sessions
+
 from .. import activity, addons, changes, config, ring, tasks
 from ..messages import _folder
 from . import auth, asks
@@ -120,6 +122,13 @@ def targets(rows: list[dict], sessions_dir: Path) -> dict[str, dict]:
         name, pid = r.get("speaker") or r.get("name"), r.get("pid")
         if not name or not pid or r.get("child"):
             continue
+        if r.get("backend") == "codex":
+            out[name.lower()] = {"name": name, "pid": int(pid), "pane": str(r.get("pane") or ""),
+                                 "cwd": r.get("cwd") or "", "session_id": r.get("session_id") or "",
+                                 "status": r.get("status"), "waiting": False, "project": r.get("project") or "",
+                                 "backend": "codex", "rollout": str(r.get("rollout") or ""),
+                                 "thread_id": str(r.get("session_id") or "")}
+            continue
         try:
             reg = json.loads((Path(sessions_dir) / f"{int(pid)}.json").read_text())
         except (OSError, ValueError):
@@ -131,7 +140,7 @@ def targets(rows: list[dict], sessions_dir: Path) -> dict[str, dict]:
         out[name.lower()] = {"name": name, "pid": int(pid), "pane": pane, "cwd": r.get("cwd") or "",
                              "session_id": r.get("session_id") or reg.get("sessionId") or "",
                              "status": r.get("status"), "waiting": bool(r.get("waiting")),
-                             "project": r.get("project") or ""}
+                             "project": r.get("project") or "", "backend": "claude"}
     return out
 
 
@@ -379,6 +388,13 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
     confirmation waits are arguments so callers of this low-level helper can
     keep fake-tmux tests immediate.
     """
+    # A Codex session takes its messages from Codex's own queue, never typed
+    # keys, so every caller (the chat window, a resume, a relay) reaches it.
+    if target.get("backend") == "codex":
+        words = " ".join(str(text).split())
+        if words.startswith("/") or EFFORT_SENT.fullmatch(words) or MODEL_SENT.fullmatch(words):
+            return False, "a slash command or a model switch is not for a Codex session"
+        return codex_sessions.queue(target, words)
     # Claude Code's own word first: "waiting" from the moment a prompt or a
     # question shows in its window. Keys typed into a dialog answer it.
     if target_waiting(target):
@@ -525,6 +541,8 @@ def transcript_path(t: dict, projects: Path) -> Path:
     (a reader that could not parse it) gets a path that is never there, so
     every reader of it degrades to empty rather than one card taking the
     chat window down."""
+    if t.get("backend") == "codex" and t.get("rollout"):
+        return Path(t["rollout"])
     if not t.get("cwd") or not t.get("session_id"):
         return Path(projects) / ".none" / "missing.jsonl"
     return Path(projects) / _folder(t["cwd"]) / f"{t['session_id']}.jsonl"
@@ -626,7 +644,9 @@ def conversation(transcript: Path, limit: int = 80, tail_bytes: int = TAIL_BYTES
     `limit`. A tail short of `limit` reads further back, doubling to
     MAX_TAIL_BYTES. `asked` is one of its questions, with `options`, the
     `answer` ("" while it waits), `closed` once the session has its result,
-    and `answered_at`, when that result came."""
+    and `answered_at`, when that result came. A Codex rollout is read as Codex."""
+    if Path(transcript).name.startswith("rollout-"):
+        return codex_sessions.conversation(Path(transcript), limit, tail_bytes)
     got = _conversation(transcript, limit, tail_bytes)
     while len(got) < limit and tail_bytes < MAX_TAIL_BYTES:
         try:
@@ -1023,6 +1043,14 @@ def _chat_payload(name: str) -> dict:
     target = _target(name)
     if not target:
         return {"ok": False, "detail": f"{name} is not running"}
+    if target.get("backend") == "codex":
+        facts = {"pid": target["pid"], "session_id": target.get("session_id") or ""}
+        row = next((r for r in _rows() if r.get("pid") == target["pid"]), {})
+        if row.get("model"):
+            facts["model"] = row["model"]
+        return {"ok": True, "name": target["name"], "project": target["project"], "status": target["status"],
+                "waiting": False, "messages": codex_sessions.conversation(Path(target["rollout"])),
+                "facts": facts, "tasks": [], "asks": [], "suggestion": None, "models": [], "efforts": []}
     rows = _rows()
     pending = asks.pending()
     mine = asks.for_agent(pending, rows, target["pid"]) if rows else [
@@ -1061,7 +1089,7 @@ def _send(body: dict) -> dict:
     record({"at": time.time(), "to": to, "text": words, "ok": ok, "detail": why})
     confirmer = (confirm_effort if EFFORT_SENT.fullmatch(words)
                  else confirm_model if MODEL_SENT.fullmatch(words) else None)
-    if ok and confirmer and "pytest" not in __import__("sys").modules:
+    if ok and confirmer and t and t.get("backend") != "codex" and "pytest" not in __import__("sys").modules:
         def confirm() -> None:
             if confirmer(t, words):
                 record({"at": time.time(), "to": to, "text": "(switch confirmed)", "ok": True, "detail": ""})
