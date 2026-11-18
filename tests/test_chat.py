@@ -1,6 +1,7 @@
 """Chat (agent_companion/server/chat.py): the owner directs sessions from the
 page. Nothing here touches tmux: every run is a fake."""
 import json
+import time
 
 import pytest
 
@@ -81,16 +82,24 @@ def test_parse_input_reads_what_sits_in_the_box():
 
 
 class Screen(Run):
-    """Fake tmux input-box states before and after its first Enter."""
-    def __init__(self, before, after):
+    """Fake tmux input-box states: `start` until anything is typed (`cleared`
+    once Ctrl-C has been pressed), then `before` until the first Enter, then
+    `after`."""
+    def __init__(self, before, after, start="", cleared=""):
         super().__init__()
-        self.before, self.after = before, after
+        self.before, self.after, self.start, self.cleared = before, after, start, cleared
         self.before_seen = self.after_seen = 0
 
     def __call__(self, args, **kw):
         if "capture-pane" not in args:
             return super().__call__(args, **kw)
         self.calls.append(args)
+        keys = [call for call in self.calls if "send-keys" in call]
+        if not any("-l" in call for call in keys):
+            value = self.cleared if any(call[-1] == "C-c" for call in keys) else self.start
+            class Idle:
+                stdout = "no input box" if value is None else _box(*(value if isinstance(value, tuple) else (value,)))
+            return Idle()
         entered = any(call[-1] == "Enter" for call in self.calls if "send-keys" in call)
         states, seen = (self.after, self.after_seen) if entered else (self.before, self.before_seen)
         value = states[min(seen, len(states) - 1)]
@@ -331,3 +340,68 @@ def test_chat_reads_the_same_claude_home_key_as_sessions(monkeypatch, tmp_path):
     monkeypatch.setenv("AGENT_COMPANION_CLAUDE_HOME", str(tmp_path / "h"))
     monkeypatch.setenv("CLAUDE_HOME", str(tmp_path / "other"))
     assert chat.claude_home() == sessions.claude_home() == tmp_path / "h"
+
+
+def _failed(tmp_path, monkeypatch, *texts, to="Ada", age=60):
+    """The chat log, with these sends to `to` typed but not confirmed."""
+    log = tmp_path / "chat.jsonl"
+    log.write_text("".join(json.dumps({"at": time.time() - age, "to": to, "text": t, "ok": False,
+                                       "detail": "typed, not confirmed: the input box never showed the typed words"}) + "\n"
+                           for t in texts))
+    monkeypatch.setattr(chat, "log_path", lambda: log)
+    return log
+
+
+def test_send_never_types_onto_words_it_did_not_put_there(monkeypatch, tmp_path):
+    """2026-11-18: a stuck word sat in the box and every retry was typed after
+    it. Words in the box that this page did not type are someone's: refuse."""
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch)
+    run = Screen(before=["x"], after=[""], start="half a thought")
+    ok, why = chat.send(KNOWN["ada"] | {"status": "idle"}, "push it", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and "half a thought" in why and "already" in why
+    assert not [c for c in run.calls if "send-keys" in c]
+
+
+def test_our_own_stuck_words_are_cleared_before_typing(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch, "Yes", "Should they be combined ?")
+    run = Screen(before=["Should they be combined ?"], after=[""],
+                 start=("Yes", "  Should they be combined ?Should they be combined ?"), cleared="")
+    ok, why = chat.send(KNOWN["ada"] | {"status": "idle"}, "Should they be combined ?", run=run,
+                        sleep=lambda s: None, appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert ok, why
+    assert [c[-1] for c in run.calls if "send-keys" in c] == ["C-c", "Should they be combined ?", "Enter"]
+
+
+def test_a_busy_session_is_never_sent_ctrl_c(monkeypatch, tmp_path):
+    """Ctrl-C at a working session interrupts its turn: leftovers there are refused."""
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch, "Yes")
+    run = Screen(before=["x"], after=[""], start="Yes")
+    ok, why = chat.send(KNOWN["ada"] | {"status": "busy"}, "push it", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and "Yes" in why
+    assert not [c for c in run.calls if "send-keys" in c]
+
+
+def test_old_failures_do_not_make_words_ours(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch, "Yes", age=3600)
+    run = Screen(before=["x"], after=[""], start="Yes")
+    ok, why = chat.send(KNOWN["ada"] | {"status": "idle"}, "push it", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and not [c for c in run.calls if "send-keys" in c]
+
+
+def test_a_failed_send_keeps_the_screen_for_later(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    log = _failed(tmp_path, monkeypatch)
+    run = Screen(before=[""], after=[])
+    ok, why = chat.send(KNOWN["ada"], "two board posts", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok
+    kept = [json.loads(l) for l in log.with_name("send-failures.jsonl").read_text().splitlines()]
+    assert kept[-1]["pane"] == "%3" and "❯" in kept[-1]["screen"] and kept[-1]["detail"].startswith("the input box")
+    assert oct(log.with_name("send-failures.jsonl").stat().st_mode)[-3:] == "600"

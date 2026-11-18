@@ -3,6 +3,11 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## 2026-11-18
+- Chat never types onto words already sitting in a session's input box. Words
+  this page typed recently that never went through are cleared first (Ctrl-C,
+  only while the session is idle); anything else is refused, with what the box
+  holds. A send that cannot be confirmed now keeps the screen it saw in
+  `send-failures.jsonl` beside the chat log (mode 600).
 - Live interactive Codex CLI sessions (`codex`, not `codex exec`) get a card
   beside Claude's and a chat window: messages read from the session's rollout
   and sent with `codex queue`. Cost shows as not priced. Nothing to set: the
