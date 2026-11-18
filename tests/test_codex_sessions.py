@@ -68,3 +68,86 @@ def test_an_unreadable_rollout_is_not_a_session(tmp_path):
     bad.write_text("not json\n")
     proc_entry(proc, 40, ["/v/codex"], fds=[bad])
     assert cx.live(proc=proc, home=home) == []
+
+
+def rec(t, typ, payload):
+    return {"timestamp": t, "type": typ, "payload": payload}
+
+
+def msg(t, role, text, phase=None, kind="input_text"):
+    p = {"type": "message", "id": f"m-{t}-{role}", "role": role, "content": [{"type": kind, "text": text}]}
+    if phase:
+        p["phase"] = phase
+    return rec(t, "response_item", p)
+
+
+T1, T2, T3, T4, T5 = (f"2026-01-02T03:0{i}:00.000Z" for i in range(5, 10))
+TURN = [
+    rec(T1, "event_msg", {"type": "task_started", "turn_id": "a"}),
+    msg(T1, "developer", "house rules"),
+    msg(T1, "user", "<environment_context>\n<cwd>/w</cwd>"),
+    rec(T1, "turn_context", {"model": "gpt-test"}),
+    msg(T1, "user", "Fix the build"),
+    rec(T2, "response_item", {"type": "custom_tool_call", "name": "exec_command", "input": "pytest -q"}),
+    rec(T2, "response_item", {"type": "custom_tool_call_output", "output": "ok"}),
+    msg(T2, "assistant", "Looking at the log", phase="commentary", kind="output_text"),
+    rec(T3, "response_item", {"type": "function_call", "name": "apply_patch", "arguments": "{}"}),
+    msg(T4, "assistant", "Fixed: a missing import.", phase="final_answer", kind="output_text"),
+    rec(T4, "event_msg", {"type": "task_complete", "turn_id": "a", "last_agent_message": "Fixed: a missing import."}),
+]
+
+
+def test_a_name_is_codex_and_the_last_four_of_its_thread():
+    assert cx.name_of("01a1ed8d-7583-7b61-9c0a-1dd1d1ab1041") == "Codex-1041"
+
+
+def test_the_row_reads_status_model_and_the_last_exchange(tmp_path):
+    home, proc = tmp_path / "codex", tmp_path / "proc"
+    path = rollout(home, "t-abcd", records=TURN[:5])
+    proc_entry(proc, 50, ["/v/codex"], fds=[path], env={"TMUX_PANE": "%3"})
+    reader = cx.CodexReader(live=lambda: cx.live(proc=proc, home=home))
+    (row,) = reader.rows()
+    assert (row["name"], row["status"], row["model"], row["last_prompt"]) == ("Codex-abcd", "busy", "gpt-test", "Fix the build")
+    assert (row["backend"], row["cost_usd"], row["priced"], row["pane"]) == ("codex", None, False, "%3")
+    assert (row["project"], row["session_id"], row["branch"], row["child"]) == ("demo", "t-abcd", "feat/x", False)
+    with path.open("a") as fh:
+        fh.write("\n".join(json.dumps(r) for r in TURN[5:]) + "\n")
+    (row,) = reader.rows()
+    assert (row["status"], row["last_reply"]) == ("idle", "Fixed: a missing import.")
+    assert row["last_reply_at"] == cx._ts(T4) and row["last_prompt_at"] == cx._ts(T1)
+
+
+def test_a_half_written_line_waits_for_its_end(tmp_path):
+    home, proc = tmp_path / "codex", tmp_path / "proc"
+    path = rollout(home, "t-half", records=TURN[:5])
+    proc_entry(proc, 51, ["/v/codex"], fds=[path])
+    reader = cx.CodexReader(live=lambda: cx.live(proc=proc, home=home))
+    line = json.dumps(TURN[-1])
+    with path.open("a") as fh:
+        fh.write(line[:20])
+    assert reader.rows()[0]["status"] == "busy"
+    with path.open("a") as fh:
+        fh.write(line[20:] + "\n")
+    assert reader.rows()[0]["status"] == "idle"
+
+
+def test_the_conversation_has_his_words_its_answers_and_the_work_between(tmp_path):
+    path = rollout(tmp_path / "codex", "t-conv", records=TURN)
+    got = cx.conversation(path)
+    assert [m["role"] for m in got] == ["me", "work", "agent"]
+    assert got[0]["text"] == "Fix the build" and got[0]["at"] == cx._ts(T1)
+    assert got[1]["tools"] == ["exec_command", "apply_patch"]
+    assert got[1]["last"].startswith("apply_patch")
+    assert got[2]["text"] == "Fixed: a missing import."
+    assert all("house rules" not in m["text"] and "environment_context" not in m["text"] for m in got)
+
+
+def test_a_gone_process_drops_its_row(tmp_path):
+    home, proc = tmp_path / "codex", tmp_path / "proc"
+    path = rollout(home, "t-gone", records=TURN[:5])
+    proc_entry(proc, 52, ["/v/codex"], fds=[path])
+    reader = cx.CodexReader(live=lambda: cx.live(proc=proc, home=home))
+    assert len(reader.rows()) == 1
+    import shutil
+    shutil.rmtree(proc / "52")
+    assert reader.rows() == []

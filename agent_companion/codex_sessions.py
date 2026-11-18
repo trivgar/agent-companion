@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -96,3 +97,172 @@ def live(proc: Path = Path("/proc"), home: Path | None = None) -> list[dict]:
                     "cwd": str(m.get("cwd") or ""), "branch": str(git.get("branch") or ""),
                     "pane": _pane(d), "started_at": _ts(m.get("timestamp"))})
     return out
+
+
+TAIL_BYTES = 600_000          # of a rollout: a reply is near the end
+MAX_TAIL_BYTES = 4_800_000
+
+
+def name_of(thread_id: str) -> str:
+    """Unique and typeable: "Codex-1041" from a thread id ending ...1041."""
+    tail = re.sub(r"[^0-9A-Za-z]", "", str(thread_id))[-4:]
+    return f"Codex-{tail or 'session'}"
+
+
+def _text(payload: dict) -> str:
+    parts = payload.get("content") if isinstance(payload.get("content"), list) else []
+    return "\n".join(str(c.get("text") or "") for c in parts
+                     if isinstance(c, dict) and c.get("type") in ("input_text", "output_text")).strip()
+
+
+def _his(payload: dict) -> str:
+    """His words, or "" for the system blocks Codex sends as the user."""
+    if payload.get("type") != "message" or payload.get("role") != "user":
+        return ""
+    text = _text(payload)
+    return "" if text.startswith("<") else text
+
+
+class CodexReader:
+    """Rows for the live sessions, each rollout read once by byte offset."""
+
+    def __init__(self, live=live) -> None:
+        self._live = live
+        self._state: dict[str, dict] = {}
+
+    def _read(self, path: Path) -> dict:
+        key = str(path)
+        st = self._state.setdefault(key, {"offset": 0, "status": "idle", "model": "", "last_prompt": "",
+                                          "last_prompt_at": None, "last_reply": "", "last_reply_at": None,
+                                          "at": None})
+        try:
+            with path.open("rb") as fh:
+                fh.seek(st["offset"])
+                chunk = fh.read()
+        except OSError:
+            return st
+        end = chunk.rfind(b"\n")
+        if end < 0:
+            return st
+        st["offset"] += end + 1
+        for line in chunk[:end].decode("utf-8", "replace").splitlines():
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            p = d.get("payload") if isinstance(d, dict) and isinstance(d.get("payload"), dict) else {}
+            at = _ts(d.get("timestamp"))
+            st["at"] = at or st["at"]
+            kind = d.get("type")
+            if kind == "event_msg" and p.get("type") == "task_started":
+                st["status"] = "busy"
+            elif kind == "event_msg" and p.get("type") == "task_complete":
+                st["status"] = "idle"
+                if str(p.get("last_agent_message") or "").strip():
+                    st["last_reply"], st["last_reply_at"] = str(p["last_agent_message"]).strip(), at
+            elif kind == "turn_context" and p.get("model"):
+                st["model"] = str(p["model"])
+            elif kind == "response_item" and _his(p):
+                st["last_prompt"], st["last_prompt_at"] = _his(p), at
+            elif (kind == "response_item" and p.get("type") == "message" and p.get("role") == "assistant"
+                  and p.get("phase") == "final_answer" and _text(p)):
+                st["last_reply"], st["last_reply_at"] = _text(p), at
+        return st
+
+    def rows(self) -> list[dict]:
+        now, out, seen = time.time(), [], set()
+        for s in self._live():
+            path = Path(s["rollout"])
+            seen.add(str(path))
+            st = self._read(path)
+            cwd = s.get("cwd") or ""
+            out.append({
+                "pid": s["pid"], "session_id": s["thread_id"], "app_url": "", "name": name_of(s["thread_id"]),
+                "speaker": "", "child": False, "parent_pid": None, "root_pid": None, "job": "", "job_about": "",
+                "label": "", "project": os.path.basename(cwd.rstrip("/")) if cwd else "",
+                "started_at": s.get("started_at"), "cwd": cwd, "title": "", "status": st["status"],
+                "waiting": False, "model": st["model"], "context_used": 0, "context_limit": 0,
+                "context_pct": 0.0, "cost_usd": None, "priced": False, "tokens": {}, "subagent_cost_usd": 0.0,
+                "subagent_tokens": 0, "subagents": [], "permission_mode": "", "last_prompt": st["last_prompt"],
+                "last_prompt_at": st["last_prompt_at"], "last_reply_at": st["last_reply_at"],
+                "last_reply": st["last_reply"], "cache": {}, "entrypoint": "codex",
+                "last_activity": round(now - st["at"], 1) if st["at"] else None,
+                "backend": "codex", "pane": s.get("pane") or "", "rollout": str(path),
+                "branch": s.get("branch") or ""})
+        for key in [k for k in self._state if k not in seen]:
+            del self._state[key]
+        return out
+
+
+def _tail(path: Path, tail_bytes: int) -> str:
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as fh:
+            if size > tail_bytes:
+                fh.seek(size - tail_bytes)
+                fh.readline()
+            return fh.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def _conversation(path: Path, limit: int, tail_bytes: int) -> list[dict]:
+    out: list[dict] = []
+    work: list[str] = []
+    last = [""]
+
+    def flush(at):
+        if work:
+            out.append({"role": "work", "at": at, "text": "", "tools": list(dict.fromkeys(work)),
+                        "last": last[0], "id": f"w{at}"})
+            work.clear()
+
+    for line in _tail(path, tail_bytes).splitlines():
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(d, dict) or d.get("type") != "response_item":
+            continue
+        p = d.get("payload") if isinstance(d.get("payload"), dict) else {}
+        at = _ts(d.get("timestamp"))
+        if at is None:
+            continue
+        mine = _his(p)
+        if mine:
+            flush(at)
+            out.append({"role": "me", "at": at, "text": mine, "id": str(p.get("id") or f"u{at}")})
+        elif p.get("type") in ("custom_tool_call", "function_call"):
+            name = str(p.get("name") or "a tool")
+            work.append(name)
+            detail = p.get("input") if p.get("type") == "custom_tool_call" else p.get("arguments")
+            last[0] = f"{name}: {' '.join(str(detail or '').split())}"[:200]
+        elif p.get("type") == "message" and p.get("role") == "assistant" and _text(p):
+            if p.get("phase") == "final_answer":
+                flush(at)
+                out.append({"role": "agent", "at": at, "text": _text(p),
+                            "id": str(p.get("id") or f"a{at}") + str(len(out))})
+            else:
+                # Commentary between tool calls folds into the work line; it
+                # names the work only when no tool has yet.
+                if not work:
+                    work.append("note")
+                    last[0] = " ".join(_text(p).split())[:200]
+    if work:
+        flush(out[-1]["at"] if out else time.time())
+    return out[-limit:]
+
+
+def conversation(rollout: Path, limit: int = 80, tail_bytes: int = TAIL_BYTES) -> list[dict]:
+    """[{role: me|agent|work, at, text, ...}] oldest first, the last `limit`,
+    in the shape the chat window draws for a Claude session."""
+    got = _conversation(Path(rollout), limit, tail_bytes)
+    while len(got) < limit and tail_bytes < MAX_TAIL_BYTES:
+        try:
+            if Path(rollout).stat().st_size <= tail_bytes:
+                break
+        except OSError:
+            break
+        tail_bytes = min(tail_bytes * 2, MAX_TAIL_BYTES)
+        got = _conversation(Path(rollout), limit, tail_bytes)
+    return got
