@@ -210,7 +210,7 @@ def subagent_label(first_line: str) -> str:
 
 class SessionReader:
     def __init__(self, claude_home: Path, ppid_of=proc_ppid, hide=None,
-                 environ_of=proc_environ) -> None:
+                 environ_of=proc_environ, codex=None) -> None:
         self.home = Path(claude_home)
         # () -> folders whose sessions are someone else's (app/people.py
         # others_private). Asked per snapshot, so a new person takes effect at once.
@@ -227,6 +227,16 @@ class SessionReader:
         # never changes, so the head of each file is read once and kept.
         self._sub_heads: dict[str, tuple[str, float | None]] = {}
         self._snap_lock = threading.Lock()
+        # Live Codex sessions as rows beside Claude's. On by default only for
+        # the real ~/.claude, so a test's home never reads the machine's /proc.
+        if codex is None:
+            real = Path.home() / ".claude"
+            if self.home.expanduser().resolve() == real.resolve():
+                from agent_companion.codex_sessions import CodexReader
+                codex = CodexReader()
+            else:
+                codex = False
+        self._codex = codex
 
     def _project_dir(self, cwd: str) -> Path:
         return self.home / "projects" / cwd.replace("/", "-")
@@ -498,8 +508,17 @@ class SessionReader:
                 "cache": cache,
                 # "cli" when you started it; an SDK host says "sdk-cli".
                 "entrypoint": s.get("entrypoint") or "",
+                "backend": "claude",
                 "last_activity": round(now - t["mtime"], 1) if t["mtime"] else None,
             })
+        if self._codex:
+            try:
+                extra = self._codex.rows()
+            except Exception:
+                extra = []
+            rows.extend(r for r in extra
+                        if not any(str(r.get("cwd") or "") == h or str(r.get("cwd") or "").startswith(h + "/")
+                                   for h in hidden))
         by_pid = {r["pid"]: r for r in rows}
         for r in rows:
             r["root_pid"] = root_of(r["pid"], by_pid)

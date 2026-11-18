@@ -151,3 +151,49 @@ def test_a_gone_process_drops_its_row(tmp_path):
     import shutil
     shutil.rmtree(proc / "52")
     assert reader.rows() == []
+
+
+from agent_companion.reader import SessionReader
+
+
+class Fixed:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def rows(self):
+        return [dict(r) for r in self._rows]
+
+
+def codex_row(cwd="/work/demo", pid=77):
+    return {"pid": pid, "session_id": "t-1", "name": "Codex-0001", "cwd": cwd, "project": "demo",
+            "status": "idle", "backend": "codex", "child": False, "last_reply_at": 5.0, "last_prompt_at": 4.0,
+            "last_activity": 1.0, "cost_usd": None}
+
+
+def test_codex_rows_join_the_snapshot(tmp_path):
+    (tmp_path / "sessions").mkdir()
+    got = SessionReader(tmp_path, codex=Fixed([codex_row()])).snapshot()
+    assert [(r["name"], r["backend"]) for r in got] == [("Codex-0001", "codex")]
+    assert "root_pid" in got[0]
+
+
+def test_a_private_folder_hides_a_codex_row_too(tmp_path):
+    (tmp_path / "sessions").mkdir()
+    reader = SessionReader(tmp_path, hide=lambda: {"/home/other": "Their agent"},
+                           codex=Fixed([codex_row(cwd="/home/other/x")]))
+    assert reader.snapshot() == []
+
+
+def test_a_broken_codex_reader_costs_only_its_rows(tmp_path):
+    (tmp_path / "sessions").mkdir()
+
+    class Broken:
+        def rows(self):
+            raise RuntimeError("boom")
+
+    assert SessionReader(tmp_path, codex=Broken()).snapshot() == []
+
+
+def test_a_test_home_never_scans_the_real_proc(tmp_path):
+    (tmp_path / "sessions").mkdir()
+    assert SessionReader(tmp_path)._codex is False
