@@ -197,3 +197,69 @@ def test_a_broken_codex_reader_costs_only_its_rows(tmp_path):
 def test_a_test_home_never_scans_the_real_proc(tmp_path):
     (tmp_path / "sessions").mkdir()
     assert SessionReader(tmp_path)._codex is False
+
+
+import subprocess
+from agent_companion.server import chat
+
+
+def test_a_codex_row_is_a_target_without_a_registry_file(tmp_path):
+    row = codex_row() | {"pane": "%4", "rollout": "/r.jsonl"}
+    got = chat.targets([row], tmp_path / "sessions")
+    t = got["codex-0001"]
+    assert (t["backend"], t["thread_id"], t["rollout"], t["pane"], t["pid"]) == ("codex", "t-1", "/r.jsonl", "%4", 77)
+
+
+def test_queue_sends_through_codex_without_the_api_key(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    seen = {}
+
+    def run(argv, **kw):
+        seen["argv"], seen["env"] = argv, kw["env"]
+        return subprocess.CompletedProcess(argv, 0, "Queued message m-1 for thread t-1.\n", "")
+
+    ok, why = cx.queue({"name": "Codex-0001", "thread_id": "t-1"}, "fix it\nnow",
+                       run=run, which=lambda _: "/bin/codex")
+    assert (ok, why) == (True, "")
+    assert seen["argv"] == ["/bin/codex", "queue", "--thread", "t-1", "--message", "fix it now"]
+    assert "OPENAI_API_KEY" not in seen["env"]
+
+
+def test_queue_says_why_it_failed():
+    def run(argv, **kw):
+        return subprocess.CompletedProcess(argv, 2, "", "error: no such thread\nmore\n")
+
+    assert cx.queue({"name": "C", "thread_id": "x"}, "hi", run=run, which=lambda _: "/bin/codex") == (
+        False, "error: no such thread")
+    assert cx.queue({"name": "C", "thread_id": "x"}, "hi", which=lambda _: None) == (False, "codex is not installed")
+
+    def slow(argv, **kw):
+        raise subprocess.TimeoutExpired(argv, 20)
+
+    assert cx.queue({"name": "C", "thread_id": "x"}, "hi", run=slow, which=lambda _: "/bin/codex") == (
+        False, "codex queue timed out")
+
+
+def test_a_codex_chat_reads_its_rollout(monkeypatch, tmp_path):
+    path = rollout(tmp_path / "codex", "t-chat", records=TURN)
+    target = {"name": "Codex-chat", "pid": 9, "pane": "", "cwd": "/w", "session_id": "t-chat", "status": "idle",
+              "waiting": False, "project": "demo", "backend": "codex", "rollout": str(path), "thread_id": "t-chat"}
+    monkeypatch.setattr(chat, "_target", lambda name: target)
+    monkeypatch.setattr(chat, "_rows", lambda: [])
+    got = chat._chat_payload("Codex-chat")
+    assert got["ok"] and [m["role"] for m in got["messages"]] == ["me", "work", "agent"]
+    assert (got["tasks"], got["asks"], got["models"], got["efforts"]) == ([], [], [], [])
+
+
+def test_a_codex_send_queues_and_is_recorded(monkeypatch):
+    target = {"name": "Codex-0001", "pid": 9, "backend": "codex", "thread_id": "t-1", "status": "idle",
+              "waiting": False, "project": "demo", "session_id": "t-1", "pane": "", "cwd": "/w", "rollout": "/r"}
+    monkeypatch.setattr(chat, "known", lambda: {"codex-0001": target})
+    sent, logged = [], []
+    monkeypatch.setattr(chat.codex_sessions, "queue", lambda t, words: (sent.append(words) or (True, "")))
+    monkeypatch.setattr(chat, "record", logged.append)
+    assert chat._send({"to": "Codex-0001", "text": "run the tests"})["ok"] is True
+    assert sent == ["run the tests"] and logged[0]["to"] == "Codex-0001" and logged[0]["ok"] is True
+    got = chat._send({"to": "Codex-0001", "text": "/model gpt-x"})
+    assert got["ok"] is False and "not for a Codex session" in got["detail"]
+    assert sent == ["run the tests"]

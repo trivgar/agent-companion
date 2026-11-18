@@ -39,6 +39,8 @@ from pathlib import Path
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
+from agent_companion import codex_sessions
+
 from .. import activity, addons, changes, config, ring, tasks
 from ..messages import _folder
 from . import auth, asks
@@ -120,6 +122,13 @@ def targets(rows: list[dict], sessions_dir: Path) -> dict[str, dict]:
         name, pid = r.get("speaker") or r.get("name"), r.get("pid")
         if not name or not pid or r.get("child"):
             continue
+        if r.get("backend") == "codex":
+            out[name.lower()] = {"name": name, "pid": int(pid), "pane": str(r.get("pane") or ""),
+                                 "cwd": r.get("cwd") or "", "session_id": r.get("session_id") or "",
+                                 "status": r.get("status"), "waiting": False, "project": r.get("project") or "",
+                                 "backend": "codex", "rollout": str(r.get("rollout") or ""),
+                                 "thread_id": str(r.get("session_id") or "")}
+            continue
         try:
             reg = json.loads((Path(sessions_dir) / f"{int(pid)}.json").read_text())
         except (OSError, ValueError):
@@ -131,7 +140,7 @@ def targets(rows: list[dict], sessions_dir: Path) -> dict[str, dict]:
         out[name.lower()] = {"name": name, "pid": int(pid), "pane": pane, "cwd": r.get("cwd") or "",
                              "session_id": r.get("session_id") or reg.get("sessionId") or "",
                              "status": r.get("status"), "waiting": bool(r.get("waiting")),
-                             "project": r.get("project") or ""}
+                             "project": r.get("project") or "", "backend": "claude"}
     return out
 
 
@@ -1023,6 +1032,14 @@ def _chat_payload(name: str) -> dict:
     target = _target(name)
     if not target:
         return {"ok": False, "detail": f"{name} is not running"}
+    if target.get("backend") == "codex":
+        facts = {"pid": target["pid"], "session_id": target.get("session_id") or ""}
+        row = next((r for r in _rows() if r.get("pid") == target["pid"]), {})
+        if row.get("model"):
+            facts["model"] = row["model"]
+        return {"ok": True, "name": target["name"], "project": target["project"], "status": target["status"],
+                "waiting": False, "messages": codex_sessions.conversation(Path(target["rollout"])),
+                "facts": facts, "tasks": [], "asks": [], "suggestion": None, "models": [], "efforts": []}
     rows = _rows()
     pending = asks.pending()
     mine = asks.for_agent(pending, rows, target["pid"]) if rows else [
@@ -1056,12 +1073,17 @@ def _send(body: dict) -> dict:
     t = k.get(to.lower())
     if not t:
         ok, why = False, f"{to} is not running in a window this page can reach"
+    elif t.get("backend") == "codex":
+        if words.startswith("/") or EFFORT_SENT.fullmatch(words) or MODEL_SENT.fullmatch(words):
+            ok, why = False, "a slash command or a model switch is not for a Codex session"
+        else:
+            ok, why = codex_sessions.queue(t, words)
     else:
         ok, why = send(t, words)
     record({"at": time.time(), "to": to, "text": words, "ok": ok, "detail": why})
     confirmer = (confirm_effort if EFFORT_SENT.fullmatch(words)
                  else confirm_model if MODEL_SENT.fullmatch(words) else None)
-    if ok and confirmer and "pytest" not in __import__("sys").modules:
+    if ok and confirmer and t and t.get("backend") != "codex" and "pytest" not in __import__("sys").modules:
         def confirm() -> None:
             if confirmer(t, words):
                 record({"at": time.time(), "to": to, "text": "(switch confirmed)", "ok": True, "detail": ""})

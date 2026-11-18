@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -266,3 +268,27 @@ def conversation(rollout: Path, limit: int = 80, tail_bytes: int = TAIL_BYTES) -
         tail_bytes = min(tail_bytes * 2, MAX_TAIL_BYTES)
         got = _conversation(Path(rollout), limit, tail_bytes)
     return got
+
+
+MAX_TEXT = 4000
+
+
+def queue(target: dict, text: str, run=subprocess.run, which=shutil.which) -> tuple[bool, str]:
+    """Put `text` on the session's queue with Codex's own command. A busy
+    session runs it when its turn ends, as Claude takes a sent line."""
+    binary = which("codex")
+    if not binary:
+        return False, "codex is not installed"
+    env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
+    line = " ".join(str(text).split())[:MAX_TEXT]
+    try:
+        done = run([binary, "queue", "--thread", str(target["thread_id"]), "--message", line],
+                   capture_output=True, text=True, timeout=20, env=env)
+    except subprocess.TimeoutExpired:
+        return False, "codex queue timed out"
+    except OSError:
+        return False, "codex is not installed"
+    if done.returncode == 0 and "Queued message" in (done.stdout or ""):
+        return True, ""
+    first = next((l.strip() for l in (done.stderr or "").splitlines() if l.strip()), "")
+    return False, first or f"codex queue failed (exit {done.returncode})"
