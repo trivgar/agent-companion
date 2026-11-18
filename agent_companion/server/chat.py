@@ -378,6 +378,53 @@ def confirm_model(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
     return _confirm_dialog(target, "Switch model?", yes, run, sleep, tries, every)
 
 
+LEFTOVER_S = 900              # a send not confirmed this recently may still sit in its box
+
+
+def _ours(box: str, name: str) -> bool:
+    """Whether everything in the box is words this page typed for `name` in
+    the last LEFTOVER_S that were never confirmed sent (2026-11-18: a stuck
+    "Yes", then each retry typed after it)."""
+    left = "".join(str(box).split())
+    if not left:
+        return True
+    cutoff = time.time() - LEFTOVER_S
+    for entry in sent(limit=200):
+        if (str(entry.get("to") or "").lower() == name.lower() and not entry.get("ok")
+                and str(entry.get("detail") or "").startswith("typed, not confirmed")
+                and float(entry.get("at") or 0) >= cutoff):
+            words = "".join(str(entry.get("text") or "").split())
+            if words:
+                left = left.replace(words, "")
+    return not left
+
+
+def _box_now(pane: str, run, timeout: float = 5) -> tuple[str, str | None]:
+    """The pane's screen and what sits in its input box (None: no box read)."""
+    try:
+        screen = run(["tmux", "capture-pane", "-e", "-p", "-t", pane],
+                     capture_output=True, text=True, timeout=timeout).stdout or ""
+    except (OSError, subprocess.SubprocessError):
+        return "", None
+    return screen, parse_input(screen)
+
+
+def _keep_screen(target: dict, detail: str, run) -> None:
+    """A send that could not be confirmed keeps the screen it saw, so the next
+    stuck Enter can be read instead of guessed at (send-failures.jsonl, 600)."""
+    screen, _ = _box_now(target.get("pane") or "", run)
+    plain = ["".join(ch for ch, _ in _screen_chars(x)) for x in screen.splitlines()]
+    path = Path(log_path()).with_name("send-failures.jsonl")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "a") as fh:
+            fh.write(json.dumps({"at": time.time(), "to": target.get("name"), "pane": target.get("pane"),
+                                 "detail": detail, "screen": "\n".join(plain[-30:])}) + "\n")
+    except OSError:
+        pass
+
+
 def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
          appear_wait_s: float = INPUT_APPEAR_WAIT_S,
          clear_wait_s: float = INPUT_CLEAR_WAIT_S,
@@ -406,7 +453,27 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
     typed = False
 
     def not_confirmed(detail: str) -> tuple[bool, str]:
+        _keep_screen(target, detail, run)
         return False, f"typed, not confirmed: {detail}"
+
+    # Never type onto words already in the box (2026-11-18: each retry landed
+    # after a stuck "Yes" and none could be confirmed). Our own unconfirmed
+    # words are cleared, with Ctrl-C, only while the session is idle: at a
+    # working session Ctrl-C interrupts its turn. Anything else is refused.
+    _, before = _box_now(target["pane"], run)
+    if before and before.strip():
+        shown = " ".join(before.split())[:80]
+        if target.get("status") != "idle" or not _ours(before, target["name"]):
+            return False, (f"{target['name']}'s input box already holds words not sent from here "
+                           f"(\"{shown}\"); not typed over them")
+        try:
+            run(["tmux", "send-keys", "-t", target["pane"], "C-c"], check=True, timeout=5)
+        except (OSError, subprocess.SubprocessError) as exc:
+            return False, f"tmux refused: {str(exc)[:80]}"
+        sleep(check_s)
+        _, after = _box_now(target["pane"], run)
+        if after is None or after.strip():
+            return False, f"{target['name']}'s input box still holds earlier unsent words (\"{shown}\")"
 
     try:
         run(["tmux", "send-keys", "-t", target["pane"], "-l", "--", line], check=True, timeout=5)
