@@ -388,6 +388,13 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
     confirmation waits are arguments so callers of this low-level helper can
     keep fake-tmux tests immediate.
     """
+    # A Codex session takes its messages from Codex's own queue, never typed
+    # keys, so every caller (the chat window, a resume, a relay) reaches it.
+    if target.get("backend") == "codex":
+        words = " ".join(str(text).split())
+        if words.startswith("/") or EFFORT_SENT.fullmatch(words) or MODEL_SENT.fullmatch(words):
+            return False, "a slash command or a model switch is not for a Codex session"
+        return codex_sessions.queue(target, words)
     # Claude Code's own word first: "waiting" from the moment a prompt or a
     # question shows in its window. Keys typed into a dialog answer it.
     if target_waiting(target):
@@ -534,6 +541,8 @@ def transcript_path(t: dict, projects: Path) -> Path:
     (a reader that could not parse it) gets a path that is never there, so
     every reader of it degrades to empty rather than one card taking the
     chat window down."""
+    if t.get("backend") == "codex" and t.get("rollout"):
+        return Path(t["rollout"])
     if not t.get("cwd") or not t.get("session_id"):
         return Path(projects) / ".none" / "missing.jsonl"
     return Path(projects) / _folder(t["cwd"]) / f"{t['session_id']}.jsonl"
@@ -635,7 +644,9 @@ def conversation(transcript: Path, limit: int = 80, tail_bytes: int = TAIL_BYTES
     `limit`. A tail short of `limit` reads further back, doubling to
     MAX_TAIL_BYTES. `asked` is one of its questions, with `options`, the
     `answer` ("" while it waits), `closed` once the session has its result,
-    and `answered_at`, when that result came."""
+    and `answered_at`, when that result came. A Codex rollout is read as Codex."""
+    if Path(transcript).name.startswith("rollout-"):
+        return codex_sessions.conversation(Path(transcript), limit, tail_bytes)
     got = _conversation(transcript, limit, tail_bytes)
     while len(got) < limit and tail_bytes < MAX_TAIL_BYTES:
         try:
@@ -1073,11 +1084,6 @@ def _send(body: dict) -> dict:
     t = k.get(to.lower())
     if not t:
         ok, why = False, f"{to} is not running in a window this page can reach"
-    elif t.get("backend") == "codex":
-        if words.startswith("/") or EFFORT_SENT.fullmatch(words) or MODEL_SENT.fullmatch(words):
-            ok, why = False, "a slash command or a model switch is not for a Codex session"
-        else:
-            ok, why = codex_sessions.queue(t, words)
     else:
         ok, why = send(t, words)
     record({"at": time.time(), "to": to, "text": words, "ok": ok, "detail": why})

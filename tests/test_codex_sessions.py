@@ -263,3 +263,18 @@ def test_a_codex_send_queues_and_is_recorded(monkeypatch):
     got = chat._send({"to": "Codex-0001", "text": "/model gpt-x"})
     assert got["ok"] is False and "not for a Codex session" in got["detail"]
     assert sent == ["run the tests"]
+
+
+def test_every_caller_of_send_and_conversation_reaches_codex(monkeypatch, tmp_path):
+    """Hosts call send(), transcript_path() and conversation() directly, not
+    only the core's routes: each must treat a Codex target as Codex."""
+    path = rollout(tmp_path / "codex", "t-any", records=TURN)
+    target = {"name": "Codex-tany", "pid": 9, "pane": "%1", "backend": "codex", "rollout": str(path),
+              "thread_id": "t-any", "cwd": "/w", "session_id": "t-any"}
+    assert chat.transcript_path(target, tmp_path / "projects") == path
+    assert [m["role"] for m in chat.conversation(path)] == ["me", "work", "agent"]
+    queued = []
+    monkeypatch.setattr(chat.codex_sessions, "queue", lambda t, words: (queued.append(words) or (True, "")))
+    assert chat.send(target, "carry\non", run=lambda *a, **k: (_ for _ in ()).throw(AssertionError("typed"))) == (True, "")
+    assert queued == ["carry on"]
+    assert chat.send(target, "/clear")[0] is False and queued == ["carry on"]
