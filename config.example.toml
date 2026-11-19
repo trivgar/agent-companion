@@ -25,6 +25,7 @@ app_name = "Companion"
 # push_dir = "~/.local/share/agent-companion"   # the push key and the subscribed devices (default data_dir)
 # mergeq_land = "pr"     # the merge queue: "pr" (a pull request per branch) or "local" (fast-forward and push)
 # mergeq_base = "main"   # the branch the merge queue lands on
+# mergeq_make_room = false # before a full merge-queue suite, stop safe idle build daemons and reap configured orphan workers
 # clear_over_file = "~/.local/share/agent-companion/needs-clear.json"  # who is past the /clear line, for a prompt hook to read
 
 # Scoreboard: days in which a later commit can count as rework. It reads only

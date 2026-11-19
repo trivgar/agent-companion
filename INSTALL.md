@@ -350,6 +350,11 @@ systemctl --user daemon-reload
 systemctl --user enable --now agent-companion-mergeq.timer
 ```
 
+Set `mergeq_make_room = true` only if the merge queue may make room before a
+full suite: it stops safe idle Gradle/Kotlin daemons and reaps only test-worker
+orphans configured for the job reaper. It is off by default because it signals
+processes on the machine.
+
 To hear when Anthropic ships a model your picker does not offer yet (or
 retires one it still does), enable the daily model watch. It reads the public
 models overview page and pushes one notice per difference; it never changes

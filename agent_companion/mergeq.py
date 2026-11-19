@@ -36,6 +36,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -327,17 +328,76 @@ def suite_tail(output: str) -> str:
     return (head + "\n...\n" if head else "") + output[-1500:]
 
 
-def run_command(tree: Path, ids: Optional[list[str]] = None, command: str = SUITE,
-                timeout: float = 3600) -> tuple[bool, list[str], str]:
-    """`command` in `tree`, with `ids` appended when given -> (green, failing
-    ids, output tail). Anything but an explicit pass is red, an exception included."""
-    cmd = command + "".join(" " + shlex.quote(i) for i in (ids or []))
+def _enabled(value) -> bool:
+    """Whether a TOML boolean or conventional environment value is enabled."""
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _preflight_detail(note) -> str:
+    """One safe, single-line preflight note for a suite result."""
     try:
-        r = _run(cmd, cwd=str(tree), timeout=timeout, shell=True)
-    except Exception as exc:       # timeout, cannot start, killed
-        return False, [], f"the suite did not finish: {exc!r}"
-    out = (r.stdout or "") + (r.stderr or "")
-    return green_by_the_book(r.returncode, out), failing_ids(out), suite_tail(out)
+        return "\n[make room] " + json.dumps(note, sort_keys=True, separators=(",", ":"), default=str)
+    except Exception:
+        return "\n[make room] " + repr(note).replace("\n", " ")[:400]
+
+
+def run_command(tree: Path, ids: Optional[list[str]] = None, command: str = SUITE,
+                timeout: float = 3600, times_dir: Optional[Path] = None) -> tuple[bool, list[str], str]:
+    """`command` in `tree`, with `ids` appended when given -> (green, failing
+    ids, output tail). A full run records JUnit durations. Anything but an
+    explicit pass is red, an exception included."""
+    cmd = command + "".join(" " + shlex.quote(i) for i in (ids or []))
+    room_note = None
+    if ids is None and _enabled(config.get("mergeq_make_room", False)) and not os.environ.get("PYTEST_CURRENT_TEST"):
+        try:
+            from . import memclear
+            room_note = memclear.preflight()
+        except Exception as exc:   # a room-maker must not prevent a suite from running
+            room_note = {"ok": False, "error": repr(exc)[:160]}
+    room_detail = _preflight_detail(room_note) if room_note is not None else ""
+
+    junit_path = None
+    record_dir = Path(times_dir) if times_dir is not None else None
+    # Only a pytest suite takes --junitxml; another runner's command is left as written.
+    if ids is None and "pytest" in command:
+        fd, name = tempfile.mkstemp(suffix=".xml")
+        os.close(fd)
+        junit_path = Path(name)
+        cmd += " --junitxml=" + shlex.quote(str(junit_path))
+        if record_dir is None and not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                from . import testtimes
+                record_dir = testtimes.default_dir()
+            except Exception:
+                pass
+
+    def record(result: str) -> None:
+        if junit_path is None or record_dir is None:
+            return
+        try:
+            from . import testtimes
+            testtimes.record(junit_path, result, record_dir, tree=tree)
+        except Exception:
+            pass
+
+    try:
+        try:
+            r = _run(cmd, cwd=str(tree), timeout=timeout, shell=True)
+        except Exception as exc:   # timeout, cannot start, killed
+            record("lost")
+            return False, [], f"the suite did not finish: {exc!r}" + room_detail
+        out = (r.stdout or "") + (r.stderr or "")
+        green = green_by_the_book(r.returncode, out)
+        record("green" if green else "red")
+        return green, failing_ids(out), suite_tail(out + room_detail)
+    finally:
+        if junit_path is not None:
+            try:
+                junit_path.unlink()
+            except OSError:
+                pass
 
 
 # --- gh, for land = "pr" ----------------------------------------------------------
