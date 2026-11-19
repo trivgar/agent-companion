@@ -31,6 +31,7 @@ final class Ringer {
     }
 
     static void register(Context c) {
+        if (BuildConfig.EMULATOR_BUILD) return;
         if (Build.VERSION.SDK_INT < 26) return;
         try {
             TelecomManager tm = c.getSystemService(TelecomManager.class);

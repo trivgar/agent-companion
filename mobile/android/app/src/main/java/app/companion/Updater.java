@@ -36,6 +36,7 @@ final class Updater {
     }
 
     static void check(Activity a) {
+        if (BuildConfig.EMULATOR_BUILD) return;
         final Context app = a.getApplicationContext();
         new Thread(() -> {
             try {

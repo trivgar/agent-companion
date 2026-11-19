@@ -24,6 +24,13 @@ android {
         // mobile/build.sh passes the commit count, so each build installs over the last.
         versionCode Integer.parseInt((project.findProperty("ccVersionCode") ?: "1").toString())
         versionName((project.findProperty("ccVersionName") ?: "dev").toString())
+        // The accessibility service is absent from ordinary builds. A real
+        // phone needs this explicit opt-in and a separate Accessibility
+        // setting; the emulator build opts in for its test hardware only.
+        def emulatorBuild = (project.findProperty("emulatorBuild") ?: "false").toString() == "true"
+        def driverEnabled = emulatorBuild || (project.findProperty("driverEnabled") ?: "false").toString() == "true"
+        buildConfigField "boolean", "EMULATOR_BUILD", emulatorBuild ? "true" : "false"
+        resValue "bool", "driver_enabled", driverEnabled ? "true" : "false"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
