@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Publish one self-contained HTML page to agent-companion.
+
+Usage:
+    page publish FILE --title TITLE [--household]
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from agent_companion import config  # noqa: E402
+from agent_companion.server import auth  # noqa: E402
+
+
+TIMEOUT = 20
+
+
+def server_url() -> str:
+    configured = str(config.get("url") or "").strip()
+    if configured:
+        return configured.rstrip("/")
+    bind = str(config.get("server_bind", "127.0.0.1") or "127.0.0.1")
+    port = int(config.get("server_port", 8770))
+    return f"http://{bind}:{port}"
+
+
+def speaker() -> str:
+    return os.environ.get("TTS_SPEAKER", "").strip() or "an agent"
+
+
+def _token() -> str:
+    try:
+        return auth.token_path().read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _detail(response) -> str:
+    try:
+        body = json.loads(response.read().decode() or "{}")
+    except (ValueError, UnicodeDecodeError):
+        return "agent-companion refused the page"
+    return str(body.get("detail") or body.get("text") or "agent-companion refused the page")
+
+
+def publish(file: Path, title: str, household: bool, *, opener=urllib.request.urlopen) -> tuple[bool, str]:
+    try:
+        source = file.expanduser().resolve(strict=True)
+        html = source.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return False, f"page: could not read {file}: {exc}"
+    token = _token()
+    if not token:
+        return False, "page: could not read the agent-companion hook token"
+    folder = Path.cwd().resolve()
+    body = {
+        "html": html, "title": title, "folder": str(folder), "speaker": speaker(),
+        "project": folder.name, "source": str(source), "household": household,
+    }
+    request = urllib.request.Request(
+        server_url() + "/api/pages", data=json.dumps(body).encode(), method="POST",
+        headers={"Content-Type": "application/json", auth.HEADER_NAME: token},
+    )
+    try:
+        with opener(request, timeout=TIMEOUT) as response:
+            answer = json.loads(response.read().decode() or "{}")
+    except urllib.error.HTTPError as exc:
+        return False, "page: " + _detail(exc)
+    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
+        return False, f"page: agent-companion did not answer ({type(exc).__name__})"
+    except (ValueError, UnicodeDecodeError):
+        return False, "page: agent-companion sent an invalid reply"
+    page = answer.get("page") if isinstance(answer.get("page"), dict) else answer
+    page_id = str(page.get("id") or "") if isinstance(page, dict) else ""
+    if not page_id:
+        return False, "page: agent-companion did not return a page address"
+    return True, f"{server_url()}/?view=pages&page={page_id}"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="page", description=__doc__.splitlines()[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    publish_parser = sub.add_parser("publish", help="publish one inline HTML file")
+    publish_parser.add_argument("file", type=Path)
+    publish_parser.add_argument("--title", required=True)
+    publish_parser.add_argument("--household", action="store_true")
+    args = parser.parse_args(argv)
+    ok, words = publish(args.file, args.title, args.household)
+    print(words, file=sys.stdout if ok else sys.stderr)
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -7,4 +7,4 @@ The page loads /static/<id>.js for each one that loaded.
 """
 from __future__ import annotations
 
-FEATURES: list[str] = ["sessions", "health", "scoreboard", "files", "specs", "asks", "chat", "mail", "money", "fitness", "deferred", "comms", "voicelab", "connections", "settings", "push"]
+FEATURES: list[str] = ["sessions", "health", "scoreboard", "files", "specs", "pages", "asks", "chat", "mail", "money", "fitness", "deferred", "comms", "voicelab", "connections", "settings", "push"]

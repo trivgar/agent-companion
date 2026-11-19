@@ -23,6 +23,7 @@ app_name = "Companion"
 # claude_limits = false        # never send your Claude Code login token to Anthropic for your limit use
 # data_dir = "~/.local/share/agent-companion"
 # push_dir = "~/.local/share/agent-companion"   # the push key and the subscribed devices (default data_dir)
+# pages_private_dirs = ["~/private-project"]    # published pages from these folders can never use --household
 # mergeq_land = "pr"     # the merge queue: "pr" (a pull request per branch) or "local" (fast-forward and push)
 # mergeq_base = "main"   # the branch the merge queue lands on
 # clear_over_file = "~/.local/share/agent-companion/needs-clear.json"  # who is past the /clear line, for a prompt hook to read
