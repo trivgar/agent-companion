@@ -24,19 +24,40 @@ own Tailscale. Most of its interaction with `~/.claude` is read-only, but
 optional hooks and the local usage cache write there. Those writes, and every
 outbound connection it can make, are listed below.
 
-Highlights:
+**Highlights**
 
-- A phone-width dashboard for live sessions, costs, context, asks, chat, and local machine state.
-- Explicit opt-ins for hooks, push, mail, voice, Android, and every other optional integration.
-- A full reference for settings, local writes, connections, safety boundaries, and removal.
+- **Every session on one card list.** Model, cost, how full its context is, the branch, the last reply, and which one is waiting on you. Claude Code and Codex sessions both.
+- **Answer from your phone.** Permission prompts and questions arrive with Allow and Deny; a terminal dialog no hook reported can be answered from the chat window.
+- **Chat to any running session.** Your words go into its terminal pane, guarded and logged, with photos attached if you like.
+- **Pages.** An agent publishes a self-contained HTML report, and it opens in a sandbox with no network and no access to the dashboard.
+- **A merge queue for agents.** Branches land as pull requests only when the whole suite passes on the batch.
+- **Local, no telemetry.** It runs on your PC, reaches your phone over your own Tailscale, and lists every file it writes and every connection it can make.
 
 <p align="center">
   <img src="docs/images/tab-sessions.png" alt="Sessions tab: four cards with model, cost, context and last reply" width="190">
+  <img src="docs/images/tab-dialog.png" alt="Chat: a terminal dialog waiting in a session, answered from the phone" width="190">
+  <img src="docs/images/tab-pages.png" alt="Pages: an agent's report of the slowest tests, in a sandbox" width="190">
+  <img src="docs/images/tab-phone.png" alt="Phone driver: an agent driving the test emulator, waiting on a prompt, with Stop" width="190">
+</p>
+<p align="center">
   <img src="docs/images/tab-money.png" alt="Money tab: net worth and accounts, demo data" width="190">
   <img src="docs/images/tab-fitness.png" alt="Fitness tab: sleep over the last 90 nights, demo data" width="190">
   <img src="docs/images/tab-mail.png" alt="Mail tab: two drafted replies with Approve, Save edit and Skip" width="190">
 </p>
 <p align="center"><sub>Phone width, 390 px. Every name and number is made up. More in <code>docs/images/</code>.</sub></p>
+
+## New since 0.2
+
+- **Phone driver** (off by default): an agent can drive an Android test emulator, or, after a second opt-in, Android's Accessibility switch, pairing and your approval, a real phone. Payments, sending, deleting and passwords stay your tap.
+- **Pages**: agents publish sandboxed HTML pages to the dashboard with `bin/page publish`.
+- **Terminal dialogs in Chat**: a numbered choice no hook reported is answered from the chat window.
+- **Codex sessions** appear on the card list and in Chat beside Claude Code ones.
+- **Model watch**: once a day, the model picker and price table are checked against Anthropic's published lineup, with one push per difference.
+- **Faster cards**: the list never waits on a slow `git status`, and the first load reads usage on threads.
+- **Chat sends you can trust**: a send confirms delivery, never types over words already in a session's box, and waits for a slow session. HEIC photos upload as JPEG with location removed.
+- **Merge queue**: a flaky batch reruns only the tests that failed, records test durations, and can free memory before a run (`mergeq_make_room`, off by default).
+- **Job reaper** (off by default) can also stop idle language servers under a live session.
+- **New session** can start another program or model through configurable launchers.
 
 ## What you need
 
