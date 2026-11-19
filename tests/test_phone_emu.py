@@ -90,7 +90,7 @@ def test_a_normal_build_never_goes_on_the_emulator():
     refused = E.apk_refusal("com.agentcompanion.app", "1.812")
     assert refused and "comms" in refused and "--emulator" in refused
     assert E.apk_refusal("com.agentcompanion.app", "1.812-emu") is None
-    assert E.apk_refusal("com.dispatchcompanion.app", "2.3.1") is None
+    assert E.apk_refusal("com.example.otherapp", "2.3.1") is None
     assert "package" in E.apk_refusal("", "")
 
 
