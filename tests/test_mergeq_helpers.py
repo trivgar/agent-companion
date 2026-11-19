@@ -64,3 +64,18 @@ def test_run_command_preflights_only_when_enabled_and_outside_pytest(tmp_path, m
     green, _bad, detail = mergeq.run_command(tmp_path, command="python3 -m pytest", times_dir=tmp_path / "on")
     assert green is True and calls == ["called"]
     assert "[make room]" in detail and '"free_gb":12.0' in detail
+
+
+def test_a_suite_that_is_not_pytest_gets_no_junitxml(monkeypatch, tmp_path):
+    from agent_companion import mergeq
+    seen = {}
+
+    class R:
+        returncode, stdout, stderr = 0, "ok", ""
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        return R()
+    monkeypatch.setattr(mergeq, "_run", fake_run)
+    mergeq.run_command(tmp_path, None, "npm test", times_dir=tmp_path)
+    assert "--junitxml" not in seen["cmd"]

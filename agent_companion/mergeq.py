@@ -360,7 +360,8 @@ def run_command(tree: Path, ids: Optional[list[str]] = None, command: str = SUIT
 
     junit_path = None
     record_dir = Path(times_dir) if times_dir is not None else None
-    if ids is None:
+    # Only a pytest suite takes --junitxml; another runner's command is left as written.
+    if ids is None and "pytest" in command:
         fd, name = tempfile.mkstemp(suffix=".xml")
         os.close(fd)
         junit_path = Path(name)
