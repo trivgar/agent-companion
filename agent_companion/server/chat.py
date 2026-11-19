@@ -1123,8 +1123,7 @@ def _chat_payload(name: str) -> dict:
         if row.get("model"):
             facts["model"] = row["model"]
         return {"ok": True, "name": target["name"], "project": target["project"], "status": target["status"],
-                "waiting": target["waiting"] or target["status"] == "waiting",
-                "dialog": None, "messages": codex_sessions.conversation(Path(target["rollout"])),
+                "waiting": False, "dialog": None, "messages": codex_sessions.conversation(Path(target["rollout"])),
                 "facts": facts, "tasks": [], "asks": [], "suggestion": None, "models": [], "efforts": []}
     rows = _rows()
     pending = asks.pending()
