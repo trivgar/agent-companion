@@ -330,6 +330,20 @@ def test_a_window_carries_that_sessions_pending_asks(client, tmp_path):
     assert client.get("/api/chat/window/Zed", headers=KEY).status_code == 404
 
 
+def test_a_window_surfaces_an_unreported_terminal_dialog_and_marks_it_waiting(client, monkeypatch):
+    from agent_companion import dialogs
+
+    terminal = {"key": "current", "question": "Continue?", "options": [], "multi": False, "cut": False}
+    seen = []
+    monkeypatch.setattr(dialogs, "read", lambda target: seen.append(target["name"]) or terminal)
+    window = client.get("/api/chat/window/Ada", headers=KEY).json()
+    assert window["dialog"] == terminal and window["waiting"] is True and seen == ["Ada"]
+    busy = dict(KNOWN["ada"], status="busy")
+    monkeypatch.setattr(chat, "known", lambda: {"ada": busy})
+    assert client.get("/api/chat/window/Ada", headers=KEY).json()["dialog"] is None
+    assert seen == ["Ada"]
+
+
 def test_transcript_path_names_the_folder_like_claude_code(tmp_path):
     t = {"cwd": "/home/t/my_proj/.wt", "session_id": "abc"}
     assert chat.transcript_path(t, tmp_path) == tmp_path / "-home-t-my-proj--wt" / "abc.jsonl"
