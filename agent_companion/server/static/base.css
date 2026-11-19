@@ -51,6 +51,17 @@ textarea, input[type=text] { width:100%; font:inherit; color:var(--fg); backgrou
 .empty { color:var(--dim); padding:24px 0; }
 @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important } }
 
+/* A choice drawn in a terminal pane, surfaced in the chat window. */
+#chat-asks .cv-ask { margin:0 0 10px; padding:10px; border:1px solid var(--alert); border-radius:8px; }
+#chat-asks .cv-ask.done { opacity:.5; }
+#chat-asks .cv-askhead { font-size:.85rem; font-weight:600; }
+#chat-asks .cv-askbtns { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+#chat-asks .cv-askbtns button { min-height:40px; padding:0 16px; border:1px solid var(--line-strong); border-radius:6px;
+  background:var(--sunk); color:var(--fg); font:inherit; font-size:.84rem; font-weight:600; }
+#chat-asks .cv-termq { max-height:12rem; margin:6px 0; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere;
+  font:.76rem ui-monospace, monospace; }
+#chat-asks .cv-meta { display:block; margin-top:6px; color:var(--faint); font-size:.76rem; }
+
 /* Connections: the state is a word and a weight first; colour only backs up "broken". */
 .conn .state { font-weight:500; font-size:.85rem; color:var(--dim); margin-left:6px; }
 .conn.broken .state { font-weight:700; color:var(--alert); }

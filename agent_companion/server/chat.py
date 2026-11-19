@@ -1123,13 +1123,22 @@ def _chat_payload(name: str) -> dict:
         if row.get("model"):
             facts["model"] = row["model"]
         return {"ok": True, "name": target["name"], "project": target["project"], "status": target["status"],
-                "waiting": False, "messages": codex_sessions.conversation(Path(target["rollout"])),
+                "waiting": False, "dialog": None, "messages": codex_sessions.conversation(Path(target["rollout"])),
                 "facts": facts, "tasks": [], "asks": [], "suggestion": None, "models": [], "efforts": []}
     rows = _rows()
     pending = asks.pending()
     mine = asks.for_agent(pending, rows, target["pid"]) if rows else [
         ask for ask in pending if ask.get("speaker", "").lower() == target["name"].lower()]
     transcript = transcript_path(target, claude_home() / "projects")
+    # A terminal choice that no hook reported belongs in this window only when
+    # it has no hook-backed ask of its own and is not mid-turn.
+    dialog = None
+    if not mine and target.get("status") != "busy":
+        try:
+            from agent_companion import dialogs
+            dialog = dialogs.read(target)
+        except Exception:
+            dialog = None
     try:
         suggested = suggestion(target)
     except Exception:
@@ -1139,7 +1148,8 @@ def _chat_payload(name: str) -> dict:
     except Exception:
         job_cards = []
     return {"ok": True, "name": target["name"], "project": target["project"], "status": target["status"],
-            "waiting": target["waiting"] or target["status"] == "waiting", "messages": conversation(transcript),
+            "waiting": target["waiting"] or target["status"] == "waiting" or bool(dialog), "dialog": dialog,
+            "messages": conversation(transcript),
             "facts": _chat_facts(target, rows), "tasks": job_cards, "asks": mine,
             "suggestion": suggested, "models": picker_values("chat_models"), "efforts": picker_values("chat_efforts")}
 
@@ -1447,6 +1457,25 @@ def chat_window(name: str):
 @router.post("/api/chat/send", dependencies=[Depends(auth.require_write)])
 def chat_send(body: dict = Body(default={})):
     return _send(body)
+
+
+@router.post("/api/chat/dialog/{name}", dependencies=[Depends(auth.require_write)])
+def chat_dialog(name: str, body: dict = Body(default={})):
+    """Answer one still-visible terminal dialog from its chat window."""
+    target = _target(name)
+    if not target:
+        raise HTTPException(404, f"{name} is not running in a window this page can reach")
+    try:
+        n = int(body.get("n"))
+    except (TypeError, ValueError):
+        raise HTTPException(422, "which choice?")
+    key = str(body.get("key") or "")
+    from agent_companion import dialogs
+    ok, detail = dialogs.answer(target, key, n)
+    record({"at": time.time(), "to": target["name"],
+            "text": f"(terminal choice {n}: {str(body.get('label') or '')[:80]})",
+            "ok": ok, "detail": detail})
+    return JSONResponse({"ok": ok, "detail": detail}, headers=_NOSTORE)
 
 
 @router.post("/api/chat/stop/{name}", dependencies=[Depends(auth.require_write)])

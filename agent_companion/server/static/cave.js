@@ -178,6 +178,19 @@
     }).join('');
   }
 
+  // A numbered choice the terminal drew without a corresponding ask.  The
+  // server marks choices this page may safely press; the rest stay terminal-only.
+  function cvDialog(dialog) {
+    const buttons = dialog.options.filter(option => option.ok).map(option =>
+      `<button type="button" data-cvdialog="${option.n}" data-label="${esc(option.label)}">${esc(option.label)}</button>`).join('');
+    const terminalOnly = dialog.options.filter(option => !option.ok).map(option => esc(option.label));
+    const why = dialog.multi ? 'Several can be selected: answer it in the terminal.'
+      : dialog.cut ? 'The top of its screen is cut off, so affirmative choices stay in the terminal.' : '';
+    return `<div class="cv-ask cv-term" data-dialog="${esc(dialog.key)}"><div class="cv-askhead">Waiting in its terminal</div>
+      <pre class="cv-termq">${esc(dialog.question)}</pre>${buttons ? `<div class="cv-askbtns">${buttons}</div>` : ''}${
+      why || terminalOnly.length ? `<span class="cv-meta">${why ? why + ' ' : ''}${terminalOnly.length ? `Terminal only: ${terminalOnly.join(' · ')}` : ''}</span>` : ''}</div>`;
+  }
+
   function controls(data) {
     const suggested = data.suggestion ? `<button type="button" class="act" data-suggestion="${esc(data.suggestion)}">Use suggestion</button>` : '';
     const models = (data.models || []).map(model => `<button type="button" class="act" data-command="/model ${esc(model)}">${esc(model)}</button>`).join('');
@@ -186,6 +199,25 @@
   }
 
   async function actOnChat(event) {
+    const dialogButton = event.target.closest('[data-cvdialog]');
+    if (dialogButton) {
+      const card = dialogButton.closest('.cv-term');
+      for (const button of card.querySelectorAll('button')) button.disabled = true;
+      try {
+        const result = await CC.post(`/api/chat/dialog/${encodeURIComponent(who)}`, {
+          key: card.dataset.dialog, n: Number(dialogButton.dataset.cvdialog), label: dialogButton.dataset.label});
+        if (!result.ok) throw new Error(result.detail || 'the choice was not accepted');
+        card.classList.add('done');
+      } catch (error) {
+        const note = document.createElement('span');
+        note.className = 'cv-meta';
+        note.textContent = 'Not sent: ' + error.message;
+        card.appendChild(note);
+        for (const button of card.querySelectorAll('button')) button.disabled = false;
+      }
+      await refresh();
+      return;
+    }
     const suggestion = event.target.closest('[data-suggestion]');
     if (suggestion) { el.querySelector('#chat-text').value = suggestion.dataset.suggestion; el.querySelector('#chat-text').focus(); return; }
     const command = event.target.closest('[data-command]');
@@ -258,7 +290,7 @@
       try {
         const windowData = await CC.get(`/api/cave/chat/${encodeURIComponent(who)}`);
         messages = windowData.messages || [];
-        el.querySelector('#chat-asks').innerHTML = askCards(windowData.asks);
+        el.querySelector('#chat-asks').innerHTML = askCards(windowData.asks) + (windowData.dialog ? cvDialog(windowData.dialog) : '');
         el.querySelector('#chat-controls').innerHTML = controls(windowData);
         if (windowData.suggestion && !el.querySelector('#chat-text').value) el.querySelector('#chat-text').placeholder = windowData.suggestion;
         await CC.post(`/api/cave/seen/${encodeURIComponent(who)}`, {});
