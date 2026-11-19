@@ -95,7 +95,7 @@ class Screen(Run):
             return super().__call__(args, **kw)
         self.calls.append(args)
         keys = [call for call in self.calls if "send-keys" in call]
-        if not any("-l" in call for call in keys):
+        if not any("-l" in call or call[-1] == "Enter" for call in keys):
             value = self.cleared if any(call[-1] == "C-c" for call in keys) else self.start
             class Idle:
                 stdout = "no input box" if value is None else _box(*(value if isinstance(value, tuple) else (value,)))
@@ -384,6 +384,38 @@ def test_a_busy_session_is_never_sent_ctrl_c(monkeypatch, tmp_path):
                         appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
     assert not ok and "Yes" in why
     assert not [c for c in run.calls if "send-keys" in c]
+
+
+def test_a_late_redraw_is_still_entered(monkeypatch):
+    """2026-11-18: Kent's box showed nothing for over 3 s, then the whole
+    message sat there unsent. The send waits for a slow redraw."""
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    run = Screen(before=[""] * 40 + ["push it"], after=[""])
+    ok, why = chat.send(KNOWN["ada"], "push it", run=run, sleep=lambda s: None,
+                        appear_wait_s=10, clear_wait_s=.01, check_s=.1)
+    assert ok, why
+    assert chat.INPUT_APPEAR_WAIT_S >= 10
+
+
+def test_our_stuck_message_is_entered_not_retyped_even_at_a_working_session(monkeypatch, tmp_path):
+    """The same words, typed earlier and never confirmed: press Enter on them.
+    No Ctrl-C, so a working session's turn is never interrupted."""
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch, "push it")
+    run = Screen(before=["x"], after=[""], start="push it")
+    ok, why = chat.send(KNOWN["ada"] | {"status": "busy"}, "push it", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert ok, why
+    assert [c[-1] for c in run.calls if "send-keys" in c] == ["Enter"]
+
+
+def test_someone_elses_identical_words_are_not_entered(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch)
+    run = Screen(before=["x"], after=[""], start="push it")
+    ok, why = chat.send(KNOWN["ada"] | {"status": "busy"}, "push it", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and not [c for c in run.calls if "send-keys" in c]
 
 
 def test_old_failures_do_not_make_words_ours(monkeypatch, tmp_path):
