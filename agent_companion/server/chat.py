@@ -274,8 +274,20 @@ def parse_input(screen: str) -> str | None:
     lines = str(screen or "").splitlines()
     plain = ["".join(ch for ch, _ in _screen_chars(x)) for x in lines]
     for n in range(len(lines) - 1, 0, -1):
-        if not (plain[n].startswith("❯") and plain[n - 1].strip().startswith("──")):
+        top = plain[n - 1].strip()
+        # A box taller than its room scrolls: its top rule reads "─── ↑ 1 more ───"
+        # and its first visible line is a continuation, not the prompt (2026-11-19:
+        # an unreadable box let three sends pile onto words already there).
+        scrolled = top.startswith("──") and "↑" in top and "more" in top
+        if not (scrolled or (plain[n].startswith("❯") and top.startswith("──"))):
             continue
+        if scrolled:
+            out = []
+            for m in range(n, len(lines)):
+                if plain[m].strip().startswith("──"):
+                    return "".join(out)
+                out.append("".join(ch for ch, dim in _screen_chars(lines[m]) if not dim))
+            return None
         out = []
         for m in range(n, len(lines)):
             if m > n and plain[m].strip() and set(plain[m].strip()) == {"─"}:
