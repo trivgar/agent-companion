@@ -8,7 +8,7 @@
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB">
   <img alt="Library: no dependencies" src="https://img.shields.io/badge/library-no%20dependencies-2ea44f">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue">
-  <img alt="Status: 0.2" src="https://img.shields.io/badge/status-0.2-orange">
+  <img alt="Status: 0.3" src="https://img.shields.io/badge/status-0.3-orange">
   <a href="https://github.com/trivgar/agent-companion/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/trivgar/agent-companion/actions/workflows/tests.yml/badge.svg"></a>
 </p>
 
@@ -46,7 +46,7 @@ outbound connection it can make, are listed below.
 </p>
 <p align="center"><sub>Phone width, 390 px. Every name and number is made up. More in <code>docs/images/</code>.</sub></p>
 
-## New since 0.2
+## New in 0.3
 
 - **Phone driver** (off by default): an agent can drive an Android test emulator, or, after a second opt-in, Android's Accessibility switch, pairing and your approval, a real phone. Payments, sending, deleting and passwords stay your tap.
 - **Pages**: agents publish sandboxed HTML pages to the dashboard with `bin/page publish`.
@@ -403,7 +403,7 @@ folders, as an install does (`~/.config/agent-companion` and
 
 ## Status
 
-Version 0.2. The dashboard has 17 tabs by default. Enabling the optional
+Version 0.3. The dashboard has 17 tabs by default. Enabling the optional
 phone driver adds an 18th tab.
 
 The automated suite covers the dependency-free library, server routes,

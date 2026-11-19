@@ -2,6 +2,29 @@
 
 What moved, and whether your settings need anything. Newest first.
 
+## 2026-11-19
+- Released as 0.3.0: everything from here down to 0.2.0 (2026-11-03).
+- Phone driver, off by default: `phone_driver = true` enables the relay, the
+  Phone tab, `bin/phone` and `bin/phone_mcp.py` for the test emulator only; a
+  real phone also needs `phone_driver_real_phone = true`, a driver-enabled
+  Android build, Android's Accessibility switch, pairing and approval. Only the
+  first emulator registers on trust; another waits for approval.
+- Pages: `bin/page publish FILE --title TITLE` puts a self-contained HTML page
+  on the dashboard, opened in an opaque-origin, no-network sandbox. Pages are
+  owner-only unless `--household`; `pages_private_dirs` keeps folders owner-only.
+- Chat answers a numbered terminal dialog that no hook reported, from the
+  session's chat window; multi-select and cut-off dialogs stay in the terminal.
+  Chat also reads an input box that has scrolled, and puts each message's
+  sender and time on their own line.
+- Model watch: `python3 -m agent_companion.modelwatch` (and an optional daily
+  timer) compares the Chat model picker and price table with Anthropic's
+  published lineup and sends one push per difference. It never edits either.
+- Session cards keep the last git answer while a repository refreshes, so a
+  slow `git status` never holds up the list.
+- Merge queue: full runs record test durations (`python3 -m
+  agent_companion.testtimes --slow 25`), and `mergeq_make_room` (off by
+  default) frees memory before a run.
+
 ## 2026-11-18
 - Chat never types onto words already sitting in a session's input box. Words
   this page typed recently that never went through are cleared first (Ctrl-C,
