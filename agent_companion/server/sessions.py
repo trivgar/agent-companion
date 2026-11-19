@@ -62,7 +62,29 @@ def sessions():
     return rows
 
 
+_LIVE: dict[int, object] = {}
+
+
+def _live_git(git):
+    """One LiveGit per GitState: a card list never waits on a cold repo, it
+    shows the repo's last answer while git refreshes behind it. Under pytest
+    it blocks, so route tests see git in the very response."""
+    import sys
+    from ..gitlive import LiveGit
+    live = _LIVE.get(id(git))
+    if live is None or live.git is not git:
+        live = _LIVE[id(git)] = LiveGit(git, wait=None if "pytest" in sys.modules else 0)
+    return live
+
+
 def _git_states(git, cwds: list[str]) -> dict:
+    live = _live_git(git)
+    if live.wait is not None:
+        return {c: live.state(c) for c in sorted(set(cwds))}
+    return _git_states_now(git, cwds)
+
+
+def _git_states_now(git, cwds: list[str]) -> dict:
     """Each folder's git state, asked at the same time. A first look shells
     out to git, and on a Windows drive under WSL that is over a second a
     repo: six sessions took 8.8 s, one after another, on the first
