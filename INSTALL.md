@@ -350,6 +350,17 @@ systemctl --user daemon-reload
 systemctl --user enable --now agent-companion-mergeq.timer
 ```
 
+To hear when Anthropic ships a model your picker does not offer yet (or
+retires one it still does), enable the daily model watch. It reads the public
+models overview page and pushes one notice per difference; it never changes
+`chat_models` or the price table itself:
+
+```bash
+cp systemd/agent-companion-modelwatch.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now agent-companion-modelwatch.timer
+```
+
 For collaboration notes, read [COLLAB.md](COLLAB.md), set `collab_label`,
 `collab_from`, and `collab_repo` in the configuration, then run:
 
