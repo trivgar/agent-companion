@@ -35,9 +35,13 @@
     }
     return r.json();
   }
-  // Raw bytes (audio) with the key; the caller makes what it needs of the response.
-  async function fetchAuthed(path) {
-    return fetch(path, {headers: authHeaders()});
+  // Raw bytes with the key; the caller makes what it needs of the response.
+  // A feature may pass a method and body (Pages uses this for DELETE), but it
+  // cannot replace the authenticated header.
+  async function fetchAuthed(path, options) {
+    const init = Object.assign({}, options || {});
+    init.headers = Object.assign({}, (options || {}).headers || {}, authHeaders());
+    return fetch(path, init);
   }
   async function post(path, body) {
     const r = await fetch(path, {method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}),

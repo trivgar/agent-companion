@@ -135,6 +135,19 @@ The hook token created at
 `~/.config/agent-companion/agent-companion-token` is not an owner key. It
 can create, poll, and withdraw an ask, but it cannot approve one.
 
+### Publish an agent page
+
+An agent can publish one self-contained HTML file to the Pages tab after the
+dashboard has started:
+
+```bash
+bin/page publish FILE --title "A useful page"
+```
+
+Add `--household` only when the page may be shown to people an installed
+add-on already authenticates. Configure `pages_private_dirs` for folders whose
+pages must remain owner-only.
+
 ### 5. Run it as a user service
 
 This is optional, but makes the dashboard survive the terminal that started

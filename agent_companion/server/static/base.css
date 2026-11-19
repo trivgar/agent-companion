@@ -70,3 +70,22 @@ textarea, input[type=text] { width:100%; font:inherit; color:var(--fg); backgrou
 .conn .fix { margin:6px 0 0; padding-left:10px; border-left:3px solid var(--line-strong); overflow-wrap:anywhere; }
 .conn.broken .fix { border-left-color:var(--alert); }
 .conn p { overflow-wrap:anywhere; }
+
+/* Pages: an agent's HTML runs only in the sealed frame; these rules style the
+   dashboard's list and controls, not the published document. */
+.pages { min-width:0; }
+.pg-list { display:grid; gap:8px; }
+.pg-card { display:grid; width:100%; gap:4px; padding:12px; text-align:left; border:1px solid var(--line);
+  border-radius:8px; background:var(--raised); color:var(--fg); font:inherit; }
+.pg-title { font-weight:650; overflow-wrap:anywhere; }
+.pg-meta { color:var(--dim); font-size:.84rem; overflow-wrap:anywhere; }
+.pg-house { display:inline-block; margin-left:6px; padding:1px 6px; border:1px solid var(--line-strong);
+  border-radius:999px; color:var(--dim); font-size:.74rem; }
+.pg-empty { color:var(--dim); padding:24px 0; }
+.pg-error { color:var(--alert); }
+.pg-open { min-width:0; }
+.pg-actions { display:flex; justify-content:space-between; gap:8px; margin-bottom:10px; }
+.pg-delete.pg-armed { border-color:var(--alert); color:var(--alert); font-weight:650; }
+.pg-heading { margin:0 0 10px; font-size:1.1rem; overflow-wrap:anywhere; }
+.pg-frame { display:block; width:100%; min-height:calc(100dvh - 190px); border:1px solid var(--line); border-radius:8px;
+  background:var(--raised); }

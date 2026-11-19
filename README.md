@@ -93,6 +93,8 @@ before the edit; it never pushes.
 
 **Specs.** Read the design specs and plans in every checkout's `docs/superpowers/specs` and `docs/superpowers/plans`, plus any folder named in `spec_folders`, newest first, each document once per repository and with who is working in it, without permitting edits. A new spec sends a push notification to your phone; a new plan does not.
 
+**Pages.** An agent can publish one self-contained HTML page to the dashboard with `bin/page publish FILE --title TITLE`. Pages run in an opaque-origin, no-network sandbox. They are private to the owner unless `--household` is used; `pages_private_dirs` keeps selected source folders owner-only.
+
 **Asks.** When a session wants permission to run something, or asks you a
 multiple-choice question, the asks hook sends it, with the full command or
 tool input, to the dashboard on your PC, and it shows up here with Allow and
@@ -473,6 +475,7 @@ hooks run outside any server's process. The server's own settings
 | `url` | The address a push opens. Web Push needs https, e.g. a `tailscale serve` URL. Default `http://127.0.0.1:8770` |
 | `contact` | `mailto:` address push services can reach you at |
 | `push_dir` | Where the push key and the subscribed devices live, for every push sent or subscribed; default `<data_dir>`. Moving it mints a new key, and every device subscribed before must subscribe again |
+| `pages_private_dirs` | Folders whose published pages may never use `--household` (a list; `:`-separated in the environment) |
 | `icons` | A module with `icon_data(tag, title)` and `icon_for(tag, title)` for each push's picture (optional) |
 | `archive_roots` | Old transcript trees to count in the lifetime total (a list; `:`-separated in the environment) |
 | `codex_home` | Codex home to read local rollout logs from; default `~/.codex`, and absent logs keep the Codex strip off |
