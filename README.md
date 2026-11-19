@@ -1,8 +1,7 @@
 <h1 align="center">agent-companion</h1>
 
 <p align="center">
-  <b>A phone-first dashboard for your Claude Code sessions, and a few helpers that run on your own PC.</b><br>
-  See which sessions are running, what they cost, which one is waiting on you, and answer from your pocket.
+  <b>A local, phone-first dashboard for people running several Claude Code sessions at once: see what is running, what it costs, and what needs a decision.</b>
 </p>
 
 <p align="center">
@@ -13,18 +12,23 @@
   <a href="https://github.com/trivgar/agent-companion/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/trivgar/agent-companion/actions/workflows/tests.yml/badge.svg"></a>
 </p>
 
-Run four or five Claude Code sessions at once and the questions pile up. Which
-one is stuck on a permission prompt? Which one is nearly out of context? What
-did today cost? agent-companion answers them on one page you can open on your
-phone. Around that page sit a few helpers that run on your own computer: a
-mail drafter, spoken replies, a place to make voices, and notes between two
-people's Claudes.
+agent-companion runs on your PC and puts the state of your Claude Code sessions
+in one page, so you can answer asks and chat from a paired phone without
+leaving the work at your terminal. Optional helpers add drafts, spoken replies,
+a voice lab, collaboration notes, and an Android phone driver when you choose
+to enable them.
 
 It is not a cloud service: there is no agent-companion account, no server of
 ours, and no telemetry. It runs on your PC and talks to your phone over your
 own Tailscale. Most of its interaction with `~/.claude` is read-only, but
 optional hooks and the local usage cache write there. Those writes, and every
 outbound connection it can make, are listed below.
+
+Highlights:
+
+- A phone-width dashboard for live sessions, costs, context, asks, chat, and local machine state.
+- Explicit opt-ins for hooks, push, mail, voice, Android, and every other optional integration.
+- A full reference for settings, local writes, connections, safety boundaries, and removal.
 
 <p align="center">
   <img src="docs/images/tab-sessions.png" alt="Sessions tab: four cards with model, cost, context and last reply" width="190">
@@ -72,6 +76,9 @@ stop only after their whole process tree has used no CPU for
 `python3 -m agent_companion.jobreaper --dry-run` lists what would go. Each
 card has a deterministic procedural pixel sprite based on its display name. At the top, your 5-hour and 7-day spend, real
 Claude limits, and, when local Codex rollout logs exist, Codex plan limits.
+The branch on a session card refreshes after an agent changes its repository.
+If Git is slow, the page keeps its last branch value and refreshes it in the
+background rather than making the card list wait.
 
 **Machine.** Local CPU use, load, memory, swap, configured disks, CPU temperature, GPU details when their command is available, and the five heaviest process command names. Missing readings explain why rather than reading as zero. Optional warning pushes are off by default.
 
@@ -106,8 +113,31 @@ most prompts itself, so only what it will not decide comes here; INSTALL.md
 says how to send every one.
 
 **Chat.** Type to any running session from your phone. Your words go into that
-session's terminal pane, as if from the keyboard. Every send is guarded and
-logged.
+session's terminal pane, as if from the keyboard. When a terminal client draws
+a numbered choice that its hooks did not report, Chat can show it and answer it
+from that session's chat window. It answers only the same dialog while that
+session remains in the foreground, and refuses terminal-only and multi-select
+choices. Every send and terminal choice is guarded and logged.
+
+**Phone driver (optional).** A dedicated agent can run one logged, serialized
+job at a time through an Android accessibility service. It is off by default:
+`phone_driver = true` enables the relay, Phone tab, `bin/phone` test-emulator
+CLI, and `bin/phone_mcp.py` MCP server. That setting permits only the test
+emulator. A real phone also needs `phone_driver_real_phone = true`, a
+driver-enabled app build, Android's own Accessibility switch, pairing, and
+approval in the Phone tab. Each job has a visible Stop control, and the device
+holder can stop it from the banner, notification, or dashboard.
+
+The driver holds payments and purchases, sending or posting as the holder,
+deleting, installs and updates, security changes, and actions it cannot safely
+classify for the holder's tap. A password, PIN, or code is the holder's turn to
+type and never reaches the agent; verification codes are hidden, and a
+screenshot is refused when it could expose a filled secret or code. Touching
+the device or taking a call pauses the job until the holder taps Resume. On a
+real phone, browser and unknown-app automation stays strict: browser swipes
+are held except for vertical page scrolling, and unknown actions or typing are
+held. After an Allow, the driver reads the target again and refuses if the
+screen or target changed.
 
 **Mail.** A helper reads new mail and writes replies in your voice for you to
 approve. Approving makes a draft in your own mail account. You press send
@@ -173,6 +203,14 @@ lands, what is left waits for the next batch. Once a branch lands, its
 worktree is removed if nothing in it is uncommitted. `mergeq_land = "local"`
 fast-forwards the base branch in the checkout and pushes it instead. COLLAB.md
 has the details.
+
+Each full pytest run records its JUnit test durations and outcomes locally, so
+`python3 -m agent_companion.testtimes --slow 25` can report recent slow tests.
+With `mergeq_make_room = true` (off by default), a full run first makes a best
+effort memory preflight. When memory is short, it can stop idle Gradle or
+Kotlin daemons only when no Gradle client is running, and reap configured
+orphaned workers. The preflight reports what it did and never prevents the
+suite from running.
 
 ## How it fits together
 
@@ -257,8 +295,21 @@ corresponding feature is used:
   on. Each file is written beside and renamed into place.
 - The merge queue keeps its entries, its history and an integration worktree
   in `~/.local/share/agent-companion/mergeq` (or `AGENT_COMPANION_MERGEQ_DIR`).
+  Full pytest runs also keep up to 60 compressed JUnit duration and outcome
+  records in its `test-times` directory (or `AGENT_COMPANION_TEST_TIMES_DIR`).
   Once a branch lands it removes that branch's own worktree, only when nothing
   in it is uncommitted.
+- The optional phone driver writes private, mode-restricted state under
+  `~/.local/share/agent-companion/phone` (or `AGENT_COMPANION_PHONE_DIR`):
+  registered-device metadata, the emulator lease, a local CLI capability cache,
+  and one folder per job with its metadata and `actions.jsonl` audit log.
+  Screen text and screenshots live beside that job. They are eligible for
+  deletion seven days after it ends and are swept on a later job start or
+  `phone sweep`; its metadata and audit log remain. The relay keeps only hashes
+  of device secrets and job capabilities.
+- `python3 -m agent_companion.modelwatch` writes its last reported model-lineup
+  difference to `~/.local/state/agent-companion/modelwatch.json`, unless
+  `AGENT_COMPANION_MODELWATCH_STATE` names another path.
 
 The app's own asks, mail queue, clips, voices, paired-device hashes, and other
 state live in `~/.local/share/agent-companion/` and
@@ -274,13 +325,15 @@ rest only when their feature is enabled or configured:
 | Service | When it can be contacted |
 |---|---|
 | Anthropic usage endpoint | While the dashboard is open, at most once every five minutes, to show your real 5-hour and 7-day limit use. It reads your Claude Code login token from `~/.claude/.credentials.json` and sends it only to `api.anthropic.com`, the service that issued it. The token is never logged, stored or shown. With no login file, no call is made, and `claude_limits = false` turns it off. |
+| Anthropic models overview | `python3 -m agent_companion.modelwatch`, or its optional daily user timer, reads Anthropic's public model-overview Markdown to compare the Chat model picker and price table. It has no account token and never changes either one. |
 | GitHub | `gh` contacts GitHub for the optional merge queue and collaboration notes. The Comms installer also downloads the pinned Piper archive from GitHub. |
 | Hugging Face | The Comms installer downloads the selected Piper voice files. |
 | Gmail | The optional mail drafter runs Claude Code with the Gmail connector after mail is configured, or, for an account set to `source = "imap"`, talks to Gmail's IMAP server itself with the app password in that account's `credentials_file`. |
 | Outlook | Only an Outlook plug-in that you add and configure can contact Microsoft services. |
 | Home Assistant | The fitness source contacts the configured Home Assistant URL. |
 | Browser Web Push | A subscribed browser's push endpoint is contacted when Web Push is enabled. |
-| Firebase Cloud Messaging | The optional Android delivery path contacts FCM only with `fcm_service_account_file` configured and a registered device. |
+| Phone driver relay | An enabled Android driver registers with, polls, and reports to the configured agent-companion dashboard address. A started job may wake it through FCM; the wakeup contains only the job id. |
+| Firebase Cloud Messaging | The optional Android delivery path and phone-driver wakeups contact FCM only with `fcm_service_account_file` configured and a registered device. |
 | Voice server | Comms contacts the configured custom voice server only for a `server:<name>` voice. With `tts_dir` naming a coordinator that lists hosts in its `remote-hosts.conf`, the dashboard asks each host serving a voice in use for its `/health`. |
 | Gemini Live | The Live Call button and routes are enabled only when `gemini_key_file` is set. The browser sends microphone audio and selected session text to Google for that call. |
 
@@ -291,6 +344,7 @@ The full list, with the reasons, is in [CLAUDE.md](CLAUDE.md).
 - **Mail never sends.** There is no send, reply or forward code, and a test fails if one appears.
 - **Writes need a paired device.** An approval needs your phone's key, a JSON request and the page's own address, all three. The token the permission hook uses can approve nothing.
 - **Loopback only.** The server listens on `127.0.0.1`, the `server_bind` default; leave it there. Your phone reaches it through `tailscale serve`, so the port is never opened to the network.
+- **The phone driver is a separate opt-in.** The real-device gate, Android Accessibility switch, device pairing and approval, dedicated phone-agent key, visible Stop controls, and on-device holds all apply before it can act. They do not make it safe to use a driver-enabled app on a device you do not control.
 - **Nothing personal in the repo.** Examples use made-up names, and a test scans for real-looking addresses, tailnet names and keys.
 - **Voices need consent.** Only stock Piper voices ship. A custom voice is for someone who has agreed.
 - **The honest limit.** A session running in bypass-permissions mode on your account can do anything you can, including reading the hook token or pairing itself. The walls stop a session that is waiting on a prompt from approving itself through this server. Where asks matter, do not run sessions in bypass mode.
@@ -328,30 +382,20 @@ folders, as an install does (`~/.config/agent-companion` and
 
 ## Status
 
-Version 0.2. Tested: the library, the server routes and the pages at phone
-width, the mail drafter against a fake source, the comms scripts against a
-fake Piper, the merge queue against throwaway repositories, and the leak scan
-(`python3 -m pytest -q`). GitHub runs the whole suite on Python 3.11 and 3.13
-for every pull request and every Monday, on whatever versions pip installs
-that day, as a new install gets them.
+Version 0.2. The dashboard has 17 tabs by default. Enabling the optional
+phone driver adds an 18th tab.
 
-A fresh install was run end to end on 2026-11-03, on the maintainer's Windows
-PC with WSL2: a clone of this repo,
-`INSTALL.md`, pairing, all 16 tabs at phone width with no console errors,
-failed requests or sideways scrolling, and a real Claude Code session through
-the hooks (a permission ask allowed from the Asks tab, chat, a commit recorded
-for the Scoreboard). The first load reads your whole history once: about 20
-seconds for 11 GB of transcripts on that machine.
+The automated suite covers the dependency-free library, server routes,
+phone-width pages, hooks, mail against a fake source, comms against a fake
+Piper, the merge queue against throwaway repositories, model watch, terminal
+dialogs, the phone-driver relay and CLI/MCP gates, Android driver source
+guards, and the leak scan. Run it with `python3 -m pytest -q`.
 
-Not yet run on a real install: Gmail drafting live, the Restore button,
-Tailscale to a real phone, the Android app's background features (push comms,
-background playback, update checks), voice training on a fresh machine, and
-the Outlook plug-in (a guide, no code yet). Expect rough edges there. Found a
-bug? Open an issue on GitHub. A security problem goes privately instead, as
-[SECURITY.md](SECURITY.md) says, and [CONTRIBUTING.md](CONTRIBUTING.md) says
-how to send a change.
-
-Roadmap: more connectors as plug-ins, and macOS.
+GitHub runs the whole suite on Python 3.11 and 3.13 for pull requests, pushes
+to `main`, and every Monday, using the dependency versions pip resolves at
+that time. Found a bug? Open an issue on GitHub. For security reports, see
+[SECURITY.md](SECURITY.md); [CONTRIBUTING.md](CONTRIBUTING.md) explains how to
+send a change.
 
 ## For developers: the library
 
@@ -427,14 +471,17 @@ background runs), and `tokens` by type.
 | `usage`, `pricing` | Tokens and cost over the 5-hour, 7-day and lifetime windows; prices per model from Anthropic's published rates |
 | `limits` | Real limit use from Anthropic's OAuth usage endpoint |
 | `activity`, `tasks` | What an agent has been doing: tool calls, time spent, workflows and helpers |
-| `gitstate`, `changes` | Each repo's branch, ahead/behind, and unpushed work |
+| `gitstate`, `gitlive`, `changes` | Each repo's branch, ahead/behind, and unpushed work; session cards keep their last Git state while a changed repository refreshes |
 | `messages` | Messages sessions send each other (SendMessage) |
 | `notify` | A permission and question hook that marks the session waiting and speaks or pushes one line |
+| `dialogs` | Numbered terminal dialogs that have no hook-backed ask, read and answered conservatively from Chat |
 | `webpush` | Web Push to your own devices, VAPID keys kept locally |
 | `checkouts`, `files`, `specs` | The checkouts Files and Specs show, grouped by repository; reading and saving a checkout's files; the specs and plans in them |
 | `clearline` | The context line: which top-level sessions are past it, and one push per crossing |
 | `jobreaper` | Stops stuck background snapshot shells; `python3 -m agent_companion.jobreaper --dry-run` lists them |
-| `mergeq` | The merge queue's engine (`Merger`), which a host app plugs its own suite, notices and hold into |
+| `mergeq`, `testtimes`, `memclear` | The merge queue engine (`Merger`), its full-run duration records, and its optional best-effort memory preflight |
+| `phone` | The optional Android phone-driver relay, test-emulator helper, one-command job protocol, and local audit trail |
+| `modelwatch` | Checks the configured Chat picker and exact price rows against Anthropic's public model overview without changing either |
 
 An unknown model is counted as **unpriced**, never as free: the lifetime
 figure says how many tokens it could not price.
@@ -474,6 +521,12 @@ hooks run outside any server's process. The server's own settings
 | `sprite_overrides` | A table mapping a session display name to `#rrggbb`, to pin that session's sprite hue. |
 | `url` | The address a push opens. Web Push needs https, e.g. a `tailscale serve` URL. Default `http://127.0.0.1:8770` |
 | `contact` | `mailto:` address push services can reach you at |
+| `phone_driver` | Make the optional phone-driver relay, `bin/phone`, and `bin/phone_mcp.py` available; it adds the Phone tab unless `features` excludes it. Default false. It permits the test emulator, not a real phone. |
+| `phone_driver_real_phone` | Permit a physical Android device to register or receive a job after the first phone-driver gate; default false. It still needs a driver-enabled build, Android Accessibility enabled, pairing, approval, and the phone agent's key. |
+| `phone_driver_agent` | Name assigned to phone-driver jobs when no CLI holder is supplied; default `phone-agent`. |
+| `phone_android_sdk` | Android SDK location for the test-emulator helper; default `~/android-sdk` (or `ANDROID_HOME` when set). |
+| `phone_android_package` | Package the emulator helper installs and addresses; default `com.agentcompanion.app`. |
+| `phone_agent_key_file` | Real-phone key file read by `bin/phone_mcp.py`; default `~/.config/agent-companion/phone-agent.key`. For a nondefault relay key, set `AGENT_COMPANION_PHONE_AGENT_KEY` too. |
 | `push_dir` | Where the push key and the subscribed devices live, for every push sent or subscribed; default `<data_dir>`. Moving it mints a new key, and every device subscribed before must subscribe again |
 | `pages_private_dirs` | Folders whose published pages may never use `--household` (a list; `:`-separated in the environment) |
 | `icons` | A module with `icon_data(tag, title)` and `icon_for(tag, title)` for each push's picture (optional) |
@@ -500,6 +553,7 @@ hooks run outside any server's process. The server's own settings
 | `data_dir` | Directory for app state, including restore snapshots; default `~/.local/share/agent-companion` |
 | `mergeq_land` | How the merge queue lands a green batch: `pr` (a pull request per branch, merged once its required checks pass) or `local` (the base branch fast-forwarded in the checkout and pushed); default `pr` |
 | `mergeq_base` | The branch the merge queue lands on; default `main` |
+| `mergeq_make_room` | Before a full merge-queue suite, run the optional best-effort memory preflight; default false. It does not run for a selected-test rerun. |
 | `score_window_days` | Days after a recorded commit in which replacing one of its added lines counts as rework; default 7 |
 | `restore_snapshot_interval_min` | Snapshot timer cadence in minutes, 1 through 60; default 5 |
 | `systemd_user_dir` | Where the restore timer installer writes user units; default `~/.config/systemd/user` |
@@ -535,6 +589,13 @@ is kept.
 Each item in `subagents` (an Agent-tool helper that wrote in the last 90 s)
 carries `label` (its first prompt line, cut to a chip), `ago`, `status`
 (`busy` when it wrote in the last 30 s), `cost_usd` and `started_at`.
+
+`python3 -m agent_companion.modelwatch` compares the Chat model picker and the
+exact model ids in the price table with Anthropic's public models overview. A
+host can choose where a difference goes through its `file_fn` hook. The command
+default is one Web Push to subscribed owner devices, once for each distinct
+difference. It never edits the picker or pricing itself. The supplied
+`agent-companion-modelwatch.timer`, if installed, runs it daily.
 
 ### Privacy
 
@@ -591,27 +652,37 @@ serving the page to your tailnet, and delete its folders:
 systemctl --user disable --now agent-companion                # the dashboard service, if you set it up
 systemctl --user disable --now mail-draft.timer               # if you set up mail drafting
 systemctl --user disable --now agent-companion-mergeq.timer   # if you set up the merge queue
+systemctl --user disable --now agent-companion-modelwatch.timer # if you set up model watch
 rm -f ~/.config/systemd/user/agent-companion.service \
   ~/.config/systemd/user/mail-draft.{service,timer} \
-  ~/.config/systemd/user/agent-companion-mergeq.{service,timer}
+  ~/.config/systemd/user/agent-companion-mergeq.{service,timer} \
+  ~/.config/systemd/user/agent-companion-modelwatch.{service,timer}
 systemctl --user daemon-reload
 
 tailscale serve --bg 8770 off      # the command that turned it on, with off
 
 rm -rf ~/.config/agent-companion ~/.local/share/agent-companion
+rm -f ~/.local/state/agent-companion/modelwatch.json
 rm -f ~/.claude/usage-cache.json ~/.claude/limits-cache.json
 rm -rf ~/.claude/session-companion-waiting                    # if you added the notify hook
 ```
 
 The two folders hold your settings, keys, paired devices, asks, mail queue,
-voices and Piper; if you set `data_dir`, delete that folder too. The
+voices, Piper, phone-driver audit data, and merge-queue test times; if you set
+`data_dir`, delete that folder too. The
 `~/.claude` lines remove the usage caches the Sessions tab keeps there and the
-notify hook's markers. Then delete the clone, which holds the `.venv`, and the
+notify hook's markers. Delete a custom `AGENT_COMPANION_MODELWATCH_STATE` or
+`AGENT_COMPANION_TEST_TIMES_DIR` too, if you set one. Then delete the clone,
+which holds the `.venv`, and the
 voice lab's GPT-SoVITS clone and conda environment if you made them. The system
 settings INSTALL.md step 1 changed (systemd in `/etc/wsl.conf`, lingering, a
 Windows sign-in task) are yours to keep or undo. On a phone, remove the
 home-screen icon or the Android app, and clear the site's data, which holds its
-owner key.
+owner key. If you enabled the phone driver, first turn off its Accessibility
+service in Android Settings, then uninstall the driver-capable app. For the
+test emulator, run `bin/phone emu stop` while `phone_driver` is still enabled;
+then delete its `agent-companion-test` Android Virtual Device or uninstall its
+app with `adb -s emulator-5580 uninstall <your phone_android_package>`.
 
 ## License
 
