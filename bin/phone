@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+"""phone -- drive the test emulator (spec 2026-11-13-phone-driver-design.md).
+
+A job is a task in a line: start one, look and act until it is done, then end
+it. Numbers belong to the latest look: a number from an older screen is
+refused and a fresh look comes back. Paying, sending, posting, deleting,
+installing and security settings wait for the device holder's tap on the device; on the
+emulator, `phone emu answer allow|deny|continue|stop|resume|notice-stop` is that tap. A held
+action answers `held`; `phone wait --for 55` waits for the device holder's answer or his
+Continue. `your_turn` means a password, PIN or code that the device holder types himself:
+on the emulator, `phone emu input` then `phone emu answer continue`. `twins`
+means the action would wait for the device holder, but the screen shows another exactly
+like it, so he is not asked: he taps the one he means himself.
+
+    phone start "TASK"            start a job on the emulator (takes its lease)
+    phone look                    what is on the screen, numbered
+    phone tap N | X,Y             tap an element by number, or a point
+    phone long N | X,Y            long press
+    phone type N "TEXT"           set a field's text in one go (never key by key, never Enter)
+    phone scroll [N] DIR          a list by number, or the screen: up, down, left or right
+    phone swipe X1,Y1 X2,Y2 [MS]  a swipe, 300 ms unless given
+    phone drag N|X,Y N|X,Y [MS]   press, hold, move, let go (an icon to a spot); 800 ms
+    phone move N                  the launcher's move for icon N; then look and tap a spot
+    phone press KEY               back, home, recents or enter
+    phone open "APP"              open an app by its name
+    phone wait [--text T] [--for S]  until the screen settles, or T shows (at most 55 s)
+    phone shot                    a screenshot; prints its file
+    phone end                     end the job: the device gets its app back
+    phone status                  live jobs, recent ones, the devices
+    phone devices forget ID       locally forget a paired driver so it can pair again
+
+    phone emu start              boot the test emulator, headless (refused while the device holder
+                                 games, under 8 GB free, or without KVM)
+    phone emu stop               shut it down (it also stops itself after 30 minutes
+                                 unused, or when your lease ends)
+    phone emu status             running, booted, the lease, last use
+    phone emu install APK        put a build on it; a agent-companion build must be the -emu one
+    phone emu reset              back to the clean snapshot
+    phone emu save-clean         save its state now as the clean snapshot (setup)
+    phone emu logs [N]           the app's and the driver's last N log lines
+    phone emu answer allow|deny|continue|stop|resume|notice-stop
+                                touch a held prompt or banner button, as the device holder's finger would
+    phone emu user power|wake|home|lock|unlock|lock-off|call|accept|hangup|touch X,Y
+                                use the device holder's measured hands on the test emulator
+    phone emu user card-stop    stop the live emulator job from agent-companion's card
+    phone emu input "TEXT"       type into the focused field (a demo password), as the device holder would
+    phone emu chrome             open the local phone end-to-end page in Chrome
+    phone emu messages-draft     open the fixed Messages draft for the Send gate
+    phone emu messages-code      send the fixed verification code and open its Messages thread
+
+the phone, the device holder's phone, is the phone agent's alone: hand phone-agent the task
+(defer.sh --for phone-agent). This command never carries the phone agent's
+key, so agent-companion refuses it a job there.
+
+The emulator is shared: a session's first use takes the `emulator` lease (see
+`lease list`), and another session's lease refuses it, naming the holder.
+A chore that fails lets go of a lease it took; one you already held stays.
+Who you are: --as NAME, else $LEASE_HOLDER, else your comms name.
+"""
+import argparse
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(os.path.realpath(__file__)).parent.parent))
+from agent_companion.phone import client as phoneclient  # noqa: E402
+from agent_companion.phone import drive as phonedrive  # noqa: E402
+from agent_companion.phone import emu as phoneemu  # noqa: E402
+from agent_companion.phone import job as phonejob  # noqa: E402
+from agent_companion.phone import settings as phone_settings  # noqa: E402
+
+leases = phonejob.leases
+
+LEASED = {"start", "stop", "install", "reset", "save-clean", "answer", "user", "input", "chrome",
+          "messages-draft", "messages-code"}
+LEASE_S = phonejob.EMULATOR_LEASE_S    # renewed by every use; ends soon after an idle stop
+PHONE_RESERVED = "phone: use the phone-agent MCP server for a real-phone job"
+
+
+def holder_name(explicit: str | None) -> str:
+    if explicit:
+        return explicit
+    if os.environ.get("LEASE_HOLDER"):
+        return os.environ["LEASE_HOLDER"]
+    return phone_settings.agent_name()
+
+
+def session_id() -> str:
+    return phonejob.session_id()
+
+
+def cap_path() -> Path:
+    """Capabilities belong to this local CLI session, not to relay job views.
+
+    The server retains only their hashes.  This small mode-600 cache lets a
+    later `phone look` process prove it started this emulator job, while the
+    lease continues to keep another session out.
+    """
+    session = hashlib.sha256(session_id().encode("utf-8")).hexdigest()
+    return phonedrive.DATA / "client-caps" / f"{session}.json"
+
+
+def take_lease(who: str, why: str) -> dict | None:
+    """The lease, taken or renewed: leases.take's answer, or None when
+    another holder has it (said on stderr)."""
+    got = phonejob.take_emulator_lease(who, why)
+    if not got["ok"]:
+        print(f"phone: {got['detail']}", file=sys.stderr)
+        return None
+    return got
+
+
+def let_go_if_new(got: dict | None, who: str) -> None:
+    """A chore or a start that failed lets go of a lease this call took
+    (step 1's review: a refused start held the emulator 35 minutes for nothing)."""
+    phonejob.release_if_new(got, who)
+
+
+def emu(a, who: str) -> int:
+    if a.chore == "install" and not a.arg:      # before the lease: a usage slip holds nothing
+        print("phone: emu install needs an APK path", file=sys.stderr)
+        return 2
+    if a.arg2 and a.chore != "user":
+        print(f"phone: emu {a.chore} takes one argument", file=sys.stderr)
+        return 2
+    got = None
+    if a.chore in LEASED:
+        got = take_lease(who, f"phone emu {a.chore}")
+        if got is None:
+            return 1
+    if a.chore == "watch":
+        print(phoneemu.watch())
+        return 0
+    if a.chore == "status":
+        print(json.dumps(phoneemu.status(), indent=2))
+        return 0
+    if a.chore == "logs":
+        if a.arg and not a.arg.isdigit():
+            print("phone: emu logs takes a number of lines", file=sys.stderr)
+            return 2
+        ok, words = phoneemu.logs(int(a.arg or 300))
+    elif a.chore == "start":
+        ok, words = phoneemu.start()
+    elif a.chore == "stop":
+        ok, words = phoneemu.stop()
+        if ok:
+            leases.release("emulator", who, session=session_id())
+    elif a.chore == "install":
+        ok, words = phoneemu.install(a.arg)
+    elif a.chore == "reset":
+        ok, words = phoneemu.reset()
+    elif a.chore == "save-clean":
+        ok, words = phoneemu.save_clean()
+    elif a.chore == "answer":
+        ok, words = phoneemu.answer(a.arg or "")
+    elif a.chore == "user":
+        if a.arg == "card-stop":
+            if a.arg2:
+                ok, words = False, "user card-stop takes no point"
+            else:
+                client = phoneclient.Client()
+                jobs = client.jobs()
+                if jobs.get("ok") is False:
+                    ok, words = False, jobs.get("text") or "agent-companion did not answer"
+                else:
+                    job = next((j for j in jobs.get("live") or [] if j.get("device") == "emulator"), None)
+                    if job is None:
+                        ok, words = False, "there is no live emulator job for the card to stop"
+                    else:
+                        phoneemu.touch_used()
+                        stopped = client.card_stop(job["id"])
+                        ok = bool(stopped.get("ok"))
+                        words = stopped.get("text") or ("stopped the emulator job from the card" if ok else
+                                                         "agent-companion did not stop the emulator job")
+        else:
+            ok, words = phoneemu.user(a.arg or "", a.arg2 or "")
+    elif a.chore == "chrome":
+        ok, words = phoneemu.chrome_page()
+    elif a.chore == "messages-draft":
+        ok, words = phoneemu.messages_draft()
+    elif a.chore == "messages-code":
+        ok, words = phoneemu.messages_code()
+    else:
+        ok, words = phoneemu.type_text(a.arg or "")
+    if not ok:
+        let_go_if_new(got, who)
+    print(words, file=sys.stdout if ok else sys.stderr)
+    return 0 if ok else 1
+
+
+point = phonejob.point
+target = phonejob.target
+
+
+def command_of(a) -> tuple[str, dict]:
+    """The verb and its arguments as the relay takes them; ValueError in words."""
+    if a.cmd in ("look", "shot"):
+        return a.cmd, {}
+    if a.cmd in ("tap", "long"):
+        return a.cmd, target(a.target)
+    if a.cmd == "type":
+        if not a.n.isdigit():
+            raise ValueError("type takes the field's number from the last look")
+        return "type", {"n": int(a.n), "text": a.text}
+    if a.cmd == "scroll":
+        if len(a.rest) == 1:
+            return "scroll", {"dir": a.rest[0]}
+        if len(a.rest) == 2 and a.rest[0].isdigit():
+            return "scroll", {"n": int(a.rest[0]), "dir": a.rest[1]}
+        raise ValueError("scroll [N] up|down|left|right")
+    if a.cmd == "swipe":
+        p1, p2 = point(a.start), point(a.end)
+        if not p1 or not p2 or not str(a.ms).isdigit():
+            raise ValueError("swipe X1,Y1 X2,Y2 [MS]")
+        return "swipe", {"x1": p1[0], "y1": p1[1], "x2": p2[0], "y2": p2[1], "ms": int(a.ms)}
+    if a.cmd == "move":
+        if not a.n.isdigit():
+            raise ValueError("move N")
+        return "move", {"n": int(a.n)}
+    if a.cmd == "drag":
+        if not str(a.ms).isdigit():
+            raise ValueError("drag N|X,Y N|X,Y [MS]")
+        args = {"ms": int(a.ms)}
+        for end, (num, xs) in ((a.start, ("n", ("x1", "y1"))), (a.end, ("to", ("x2", "y2")))):
+            if end.isdigit():
+                args[num] = int(end)
+            elif point(end):
+                args[xs[0]], args[xs[1]] = point(end)
+            else:
+                raise ValueError("drag N|X,Y N|X,Y [MS]")
+        return "drag", args
+    if a.cmd == "press":
+        return "press", {"key": a.key}
+    if a.cmd == "open":
+        return "open", {"app": a.app}
+    if a.cmd == "wait":
+        args = {"s": float(a.seconds)}
+        if a.text:
+            args["text"] = a.text
+        return "wait", args
+    raise ValueError(f"no such command {a.cmd}")
+
+
+def say(got: dict) -> int:
+    text = phonejob.result_text(got)
+    ok = bool(got.get("ok"))
+    print(text, file=sys.stdout if ok else sys.stderr)
+    return 0 if ok else 1
+
+
+def status(c) -> int:
+    got = c.jobs()
+    if got.get("ok") is False:
+        return say(got)
+    for line in phonejob.status_lines(got):
+        print(line)
+    return 0
+
+
+def forget_device(a) -> int:
+    """The only re-pairing surface: local data, never an HTTP route."""
+    if a.device_chore != "forget":
+        return 2
+    got = phonedrive.Relay().forget_device(a.device_id)
+    print(got.get("text", "could not forget that device"),
+          file=sys.stdout if got.get("ok") else sys.stderr)
+    return 0 if got.get("ok") else 1
+
+
+def drive(a, who: str) -> int:
+    c = phoneclient.Client(cap_path=cap_path())
+    if a.cmd == "status":
+        return status(c)
+    if a.device != "emulator":
+        print(PHONE_RESERVED, file=sys.stderr)
+        return 1
+    if a.cmd == "start":
+        lease = take_lease(who, f"phone job: {a.task[:60]}")
+        if lease is None:
+            return 1
+        phonejob.touch_emulator()
+        got = c.start("emulator", a.task, who)
+        if got.get("ok"):
+            print(f"job {got['job']['id']} on the emulator: {got.get('text')}")
+            return 0
+        let_go_if_new(lease, who)
+        return say(got)
+    job = c.live_job("emulator")
+    if job is None:
+        print('phone: no live job on the emulator: phone start "TASK" first', file=sys.stderr)
+        return 1
+    if take_lease(who, f"phone job: {job['task'][:60]}") is None:
+        return 1
+    phonejob.touch_emulator()
+    if a.cmd == "end":
+        return say(c.end(job["id"]))
+    try:
+        verb, args = command_of(a)
+    except ValueError as e:
+        print(f"phone: {e}", file=sys.stderr)
+        return 2
+    return say(c.command(job["id"], verb, args))
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="phone", description=__doc__.split("\n")[0])
+    ap.add_argument("--as", dest="holder", default=None)
+    ap.add_argument("--device", default="emulator", help="emulator, the default; the phone is phone-agent's")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    e = sub.add_parser("emu")
+    e.add_argument("chore", choices=["start", "stop", "status", "install", "reset", "save-clean",
+                                     "logs", "answer", "user", "input", "chrome", "messages-draft",
+                                     "messages-code", "watch"])
+    e.add_argument("arg", nargs="?")
+    e.add_argument("arg2", nargs="?")
+    device_parser = sub.add_parser("devices")
+    device_sub = device_parser.add_subparsers(dest="device_chore", required=True)
+    forget = device_sub.add_parser("forget")
+    forget.add_argument("device_id")
+    sub.add_parser("sweep")
+    sub.add_parser("status")
+    for name in ("look", "shot", "end"):
+        sub.add_parser(name)
+    sub.add_parser("start").add_argument("task")
+    for name in ("tap", "long"):
+        sub.add_parser(name).add_argument("target")
+    t = sub.add_parser("type")
+    t.add_argument("n")
+    t.add_argument("text")
+    sub.add_parser("scroll").add_argument("rest", nargs="+")
+    sw = sub.add_parser("swipe")
+    sw.add_argument("start")
+    sw.add_argument("end")
+    sw.add_argument("ms", nargs="?", default="300")
+    sub.add_parser("move").add_argument("n")
+    dr = sub.add_parser("drag")
+    dr.add_argument("start")
+    dr.add_argument("end")
+    dr.add_argument("ms", nargs="?", default="800")
+    sub.add_parser("press").add_argument("key", choices=phonedrive.KEYS)
+    sub.add_parser("open").add_argument("app")
+    w = sub.add_parser("wait")
+    w.add_argument("--text", default=None)
+    w.add_argument("--for", dest="seconds", default="10")
+    a = ap.parse_args(argv)
+    if not phone_settings.enabled():
+        print("phone: the phone driver is off; set phone_driver = true to enable it", file=sys.stderr)
+        return 1
+    who = holder_name(a.holder)
+    if a.cmd == "emu":
+        return emu(a, who)
+    if a.cmd == "sweep":
+        print(f"swept {phonedrive.sweep()} folders of screens")
+        return 0
+    if a.cmd == "devices":
+        return forget_device(a)
+    return drive(a, who)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

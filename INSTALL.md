@@ -346,6 +346,33 @@ of the paired key for its background features (push-delivered comms, clip
 playback, update checks), which run with no page open. Pairing again replaces
 it.
 
+### Phone driver (optional)
+
+The phone driver lets a dedicated agent run one logged, serialized job on an
+Android device through its accessibility service. It is deliberately disabled
+until you opt in:
+
+```toml
+phone_driver = true
+phone_driver_real_phone = false
+```
+
+The first setting enables the relay, dashboard section, `bin/phone`, and
+`bin/phone_mcp.py`; it permits the test emulator only. Set
+`phone_driver_real_phone = true` separately before a physical device may pair
+or receive a job. The emulator uses `~/android-sdk` by default; set
+`phone_android_sdk` if your SDK is elsewhere.
+
+Build the Android app with its driver flavor (`--driver`) or its isolated
+emulator flavor (`--emulator`), then install it and enable its accessibility
+service in Android Settings. Keep the real-device setting off while rehearsing
+on the emulator.
+
+The driver always shows a visible banner with a **Stop** control. Actions that
+could matter are held for the device holder, browser automation stays in
+strict mode, verification codes are hidden, and password fields are refused.
+Never use it to bypass a hold or to enter a password or code.
+
 ### Merge queue and collaboration notes
 
 These are optional features for people sharing a repository. They need GitHub

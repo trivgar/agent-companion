@@ -1,0 +1,557 @@
+#!/usr/bin/env python3
+"""Exercise the phone driver's gates on the test emulator.
+
+This is deliberately outside tests: it needs the shared emulator, Chrome and
+the running agent-companion relay. It calls bin/phone for every emulator and
+driver action, so this file never calls adb or the relay itself.
+"""
+from __future__ import annotations
+
+import argparse
+import functools
+import re
+import subprocess
+import sys
+import threading
+import time
+from dataclasses import dataclass
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent.parent
+PHONE = ROOT / "bin" / "phone"
+PAGE_DIR = ROOT / "bin"
+DEFAULT_APK = Path.home() / ".local" / "share" / "agent-companion" / "phone" / "agent-companion-emu.apk"
+HOLDER = "phone-e2e"
+POLL_S = 0.25
+PROMPT_ARM_S = 0.7
+LOOK_LINE = re.compile(
+    r'^(?P<number>[1-9]\d*)\s+(?P<kind>\w+)(?:\s+"(?P<label>[^"]*)"|\s+\[[^]]+\]|\s+\(no label\))',
+    re.MULTILINE,
+)
+
+
+class E2EError(RuntimeError):
+    """A check that cannot continue, in a short sentence for the runner."""
+
+
+@dataclass(frozen=True)
+class LookItem:
+    number: int
+    kind: str
+    label: str | None
+
+
+@dataclass(frozen=True)
+class Reply:
+    returncode: int
+    text: str
+
+
+@dataclass(frozen=True)
+class StatusLine:
+    """One live or ended job in phone status's public text format."""
+
+    scope: str
+    state: str
+    detail: str
+
+
+STATUS_LINE = re.compile(
+    r"^(?P<scope>live|ended): .* \((?P<state>[^:()]+): (?P<detail>.*)\)(?:; last: .*)?$",
+    re.MULTILINE,
+)
+
+
+def look_items(text: str) -> list[LookItem]:
+    """The numbered items in phone look's stable, human-readable format."""
+    return [LookItem(int(m.group("number")), m.group("kind"), m.group("label"))
+            for m in LOOK_LINE.finditer(text)]
+
+
+def find_label(text: str, label: str, kind: str | None = None) -> int:
+    """One numbered item with this label, preferring an exact label match."""
+    items = [item for item in look_items(text) if item.label is not None and (kind is None or item.kind == kind)]
+    exact = [item for item in items if item.label == label]
+    matches = exact or [item for item in items if label.casefold() in item.label.casefold()]
+    if len(matches) == 1:
+        return matches[0].number
+    found = ", ".join(f'{item.number} {item.kind} "{item.label}"' for item in matches) or "none"
+    raise ValueError(f'expected one {kind or "item"} labeled {label!r}, found {found}')
+
+
+def find_unlabeled_button(text: str) -> int:
+    """The lone button without an accessible label, used for the icon check."""
+    matches = [item for item in look_items(text) if item.kind == "button" and item.label is None]
+    if len(matches) == 1:
+        return matches[0].number
+    found = ", ".join(str(item.number) for item in matches) or "none"
+    raise ValueError(f"expected one unlabeled button, found {found}")
+
+
+def status_lines(text: str) -> list[StatusLine]:
+    """The jobs reported by phone status, without guessing at its words."""
+    return [StatusLine(m.group("scope"), m.group("state"), m.group("detail"))
+            for m in STATUS_LINE.finditer(text)]
+
+
+def status_is(text: str, scope: str, state: str, detail: str = "") -> bool:
+    """Whether status has this state and its documented detail prefix."""
+    return any(line.scope == scope and line.state == state and line.detail.startswith(detail)
+               for line in status_lines(text))
+
+
+def has_code(text: str, code: str) -> bool:
+    """Whether bin/phone's stable refusal suffix names this code."""
+    return f"[{code}]" in text
+
+
+def stopped_outcome(text: str) -> bool:
+    """Whether phone status records an ended job with the stopped outcome."""
+    return status_is(text, "ended", "stopped")
+
+
+class QuietPageHandler(SimpleHTTPRequestHandler):
+    """The fixture server says nothing: PASS and FAIL stay readable."""
+
+    def log_message(self, format, *args) -> None:
+        pass
+
+
+def start_page_server() -> tuple[ThreadingHTTPServer, threading.Thread]:
+    handler = functools.partial(QuietPageHandler, directory=str(PAGE_DIR))
+    server = ThreadingHTTPServer(("127.0.0.1", 8771), handler)
+    thread = threading.Thread(target=server.serve_forever, name="phone-e2e-page", daemon=True)
+    thread.start()
+    return server, thread
+
+
+class Phone:
+    """One bin/phone call, with its words kept for the check that needs them."""
+
+    def run(self, *args: str, timeout: float = 80) -> Reply:
+        try:
+            done = subprocess.run([str(PHONE), "--as", HOLDER, *args], cwd=ROOT, text=True,
+                                  capture_output=True, timeout=timeout)
+        except OSError as e:
+            raise E2EError(f"could not run bin/phone: {e}") from e
+        except subprocess.TimeoutExpired as e:
+            raise E2EError(f"phone {' '.join(args)} timed out after {timeout:.0f} s") from e
+        text = "\n".join(part for part in (done.stdout.strip(), done.stderr.strip()) if part)
+        return Reply(done.returncode, text)
+
+    def must(self, *args: str, timeout: float = 80) -> Reply:
+        got = self.run(*args, timeout=timeout)
+        if got.returncode != 0:
+            raise E2EError(f"phone {' '.join(args)} failed: {got.text or 'no reply'}")
+        return got
+
+
+class GatesRun:
+    """The ordered checks, all through the public phone command."""
+
+    def __init__(self, phone: Phone):
+        self.phone = phone
+
+    def check(self, name: str, action) -> None:
+        try:
+            action()
+        except (E2EError, ValueError) as e:
+            print(f"FAIL {name}: {e}")
+            raise E2EError("") from e
+        print(f"PASS {name}")
+
+    def logs(self) -> str:
+        return self.phone.must("emu", "logs", "500").text
+
+    def wait_until(self, what: str, predicate, seconds: float = 12) -> str:
+        deadline = time.monotonic() + seconds
+        last = ""
+        while time.monotonic() < deadline:
+            last = str(predicate())
+            if last:
+                return last
+            time.sleep(POLL_S)
+        raise E2EError(f"timed out waiting for {what}")
+
+    def wait_for_new_log(self, before: str, needle: str, seconds: float = 12) -> str:
+        # Each line carries its time to the millisecond, so a needle line not
+        # in `before` is new. Counting needles in the 500-line window missed a
+        # new one whenever an old one slid out as it came in (the run of 14:27).
+        seen = {line for line in before.splitlines() if needle in line}
+
+        def found() -> str:
+            now = self.logs()
+            return now if any(needle in line and line not in seen for line in now.splitlines()) else ""
+
+        return self.wait_until(needle, found, seconds)
+
+    def wait_for_prompt(self, before: str) -> None:
+        self.wait_for_new_log(before, "PROMPT allow=")
+        # Prompt's 600 ms arm has no separate log event to poll. Its log proves
+        # it is on screen; this short interval keeps an injected touch a real answer.
+        deadline = time.monotonic() + PROMPT_ARM_S
+        while time.monotonic() < deadline:
+            time.sleep(min(POLL_S, deadline - time.monotonic()))
+
+    def look(self) -> str:
+        return self.phone.must("look").text
+
+    def label(self, label: str, kind: str | None = None) -> int:
+        return find_label(self.look(), label, kind)
+
+    def wait_for_label(self, label: str, kind: str | None = None, seconds: float = 12) -> int:
+        found: list[int] = []
+
+        def present() -> str:
+            try:
+                found[:] = [find_label(self.look(), label, kind)]
+            except ValueError:
+                return ""
+            return "present"
+
+        self.wait_until(f"{label!r}", present, seconds)
+        return found[0]
+
+    def wait_for_page_text(self, wanted: str, seconds: float = 12) -> None:
+        self.wait_until(repr(wanted), lambda: "present" if wanted in self.look() else "", seconds)
+
+    def wait_for_status(self, scope: str, state: str, detail: str = "", seconds: float = 12) -> None:
+        """Wait for phone status to say exactly the state the run needs."""
+        wanted = f"{scope} {state}" + (f" {detail}" if detail else "")
+        self.wait_until(wanted, lambda: "present" if status_is(self.phone.must("status").text,
+                                                                scope, state, detail) else "", seconds)
+
+    def expect_code(self, got: Reply, code: str) -> None:
+        if got.returncode == 0:
+            raise E2EError(f"expected {code}, but phone succeeded: {got.text}")
+        if not has_code(got.text, code):
+            raise E2EError(f"expected {code}, got: {got.text or 'no reply'}")
+
+    def held(self, *command: str) -> None:
+        before = self.logs()
+        self.expect_code(self.phone.run(*command), "held")
+        self.wait_for_prompt(before)
+
+    def deny_and_wait(self) -> None:
+        self.phone.must("emu", "answer", "deny")
+        denied = self.phone.run("wait", "--for", "55", timeout=80)
+        self.expect_code(denied, "denied")
+        if "the device holder denied it" not in denied.text:
+            raise E2EError(f"wait did not say the device holder denied it: {denied.text}")
+
+    def dismiss_chrome_promo_and_wait_for_page(self) -> None:
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            page = self.look()
+            try:
+                find_label(page, "Search products", "field")
+                return
+            except ValueError:
+                pass
+            try:
+                no_thanks = find_label(page, "No thanks", "button")
+            except ValueError:
+                time.sleep(POLL_S)
+                continue
+            self.phone.must("tap", str(no_thanks))
+        raise E2EError("Chrome did not show the phone end-to-end page")
+
+    def run_checks(self) -> None:
+        self.check("A screenshot of the page goes", lambda: self.phone.must("shot"))
+        self.check("Pay is held", lambda: self.held("tap", str(self.label("Pay $12.40", "button"))))
+        self.check("Pay denial is touched", lambda: self.phone.must("emu", "answer", "deny"))
+
+        def pay_denied() -> None:
+            denied = self.phone.run("wait", "--for", "55", timeout=80)
+            self.expect_code(denied, "denied")
+            if "the device holder denied it" not in denied.text:
+                raise E2EError(f"wait did not say the device holder denied it: {denied.text}")
+
+        self.check("Pay wait says denied", pay_denied)
+        self.check("Denied Pay leaves the page unchanged", lambda: self._page_unchanged("tapped: Pay $12.40"))
+        self.check("Pay is held again", lambda: self.held("tap", str(self.label("Pay $12.40", "button"))))
+        self.check("Pay allow is touched", lambda: self.phone.must("emu", "answer", "allow"))
+
+        def pay_allowed() -> None:
+            allowed = self.phone.must("wait", "--for", "55", timeout=80)
+            if "the device holder allowed it, and it is done" not in allowed.text:
+                raise E2EError(f"wait did not say Pay was done: {allowed.text}")
+
+        self.check("Pay wait says the device holder allowed it", pay_allowed)
+        self.check("Allowed Pay changes the page", lambda: self.wait_for_page_text("tapped: Pay $12.40"))
+        self.check("Save for later goes", self._save_for_later)
+        self.check("The unlabeled icon is held", self._unlabeled_icon_held)
+        self.check("The unlabeled icon denial clears its prompt", self.deny_and_wait)
+        self.check("Enter in Message to the seller is held", self._message_enter_held)
+        self.check("The Message Enter denial clears its prompt", self.deny_and_wait)
+        self.check("Enter in Search products goes", self._search_enter)
+        self.check("Password type is the device holder's turn", self._password_turn)
+        self.check("Password Continue says the device holder took his turn", self._password_continue)
+        self.check("No screenshot while the Password field holds what he typed",
+                   lambda: self.expect_code(self.phone.run("shot"), "secret"))
+        self.check("Zip code types", self._zip_types)
+        self.check("Accessibility row is held", self._accessibility_held)
+        self.check("The Accessibility denial clears its prompt", self.deny_and_wait)
+        self.check("Navigate up goes", lambda: self.phone.must("tap", str(self.label("Navigate up", "button"))))
+        self.check("Messages Send is held", self._messages_send_held)
+        self.check("Messages Send denial clears its prompt", self.deny_and_wait)
+        self.check("Banner Stop ends the job as stopped", self._stop_from_banner)
+
+    def run_handing_over_checks(self) -> None:
+        """Phase 2: the ways the device holder gets his phone back, in plan order."""
+        self.check("The ticker is not the device holder", self._ticker_not_user)
+        self.check("A touch pauses the job", self._touch_pauses)
+        self.check("Paused, a look answers at once", self._paused_look)
+        self.check("Resume hands it back", self._resume_hands_it_back)
+        self.check("A call pauses the job", self._call_pauses)
+        self.check("The notification's Stop ends the job", self._notification_stop)
+        self.check("agent-companion's Stop reaches a running wait", self._card_stop_reaches_wait)
+        self.check("The power button ends the job", self._power_stops)
+        self.check("A locked phone waits for the unlock", self._locked_phone_waits)
+        self.check("A call delays the start", self._call_delays_start)
+
+    def _page_unchanged(self, unwanted: str) -> None:
+        if unwanted in self.look():
+            raise E2EError(f"page unexpectedly says {unwanted!r}")
+
+    def _save_for_later(self) -> None:
+        self.phone.must("tap", str(self.label("Save for later", "button")))
+        self.wait_for_page_text("tapped: Save for later")
+
+    def _unlabeled_icon_held(self) -> None:
+        before = self.logs()
+        n = find_unlabeled_button(self.look())
+        self.expect_code(self.phone.run("long", str(n)), "held")
+        self.wait_for_prompt(before)
+
+    def _message_enter_held(self) -> None:
+        self.phone.must("tap", str(self.label("Message to the seller", "field")))
+        self.held("press", "enter")
+
+    def _search_enter(self) -> None:
+        self.phone.must("tap", str(self.label("Search products", "field")))
+        # As an agent would: look until the box has the focus, then Enter. Under
+        # load Chrome is slow to move it, and Enter on a field it cannot name is
+        # held (seen 2 runs in 5, 2026-11-16).
+        self.wait_until("Search products focused", lambda: "present" if any(
+            '"Search products"' in line and "focused" in line for line in self.look().splitlines()) else "", 8)
+        self.phone.must("press", "enter")
+
+    def _password_turn(self) -> None:
+        self.phone.must("tap", str(self.label("Password", "field")))
+        before = self.logs()
+        self.expect_code(self.phone.run("type", str(self.label("Password", "field")), "refused"), "your_turn")
+        self.wait_for_new_log(before, "BANNER continue=")
+
+    def _password_continue(self) -> None:
+        self.phone.must("emu", "input", "demo-pass")
+        self.phone.must("emu", "answer", "continue")
+        took_turn = self.phone.must("wait", "--for", "55", timeout=80)
+        if "the device holder took his turn" not in took_turn.text:
+            raise E2EError(f"wait did not say the device holder took his turn: {took_turn.text}")
+
+    def _zip_types(self) -> None:
+        self.phone.must("type", str(self.label("Zip code", "field")), "94107")
+        self.wait_for_page_text("94107")
+
+    def _accessibility_held(self) -> None:
+        # Settings' home is no security page: its Accessibility row opens the
+        # page. On that page (its title is Accessibility) every row is held.
+        self.phone.must("open", "Settings")
+        row = None
+        for _ in range(6):
+            try:
+                row = self.wait_for_label("Accessibility", "button", seconds=4)
+                break
+            except E2EError:
+                self.phone.must("scroll", "down")
+        if row is None:
+            raise E2EError("Settings showed no Accessibility row")
+        self.phone.must("tap", str(row))
+        self.wait_for_label("Display size and text", "button", seconds=12)
+        self.held("tap", str(self.label("Display size and text", "button")))
+
+    def _messages_send_held(self) -> None:
+        self.phone.must("emu", "messages-draft")
+        self.wait_for_label("Send", "button", seconds=20)
+        self.held("long", str(self.label("Send", "button")))
+
+    def _stop_from_banner(self) -> None:
+        # The banner logs its Stop once, when the job starts: two dozen checks
+        # later that line is far back, past the 500 lines logs() reads.
+        self.wait_until("the driving banner",
+                        lambda: "present" if "BANNER stop=" in self.phone.must("emu", "logs", "5000").text else "", 12)
+        self.phone.must("emu", "answer", "stop")
+        self.wait_until("the stopped outcome", lambda: "present" if stopped_outcome(self.phone.must("status").text) else "", 12)
+
+    def _start_handing_over_job(self, task: str) -> None:
+        self.phone.must("start", task)
+
+    def _ticker_not_user(self) -> None:
+        # Phase 1 finishes in Messages. the device holder puts Chrome back on the fixture
+        # before the new job, then the ticker moves by itself during wait.
+        self.phone.must("emu", "chrome")
+        self._start_handing_over_job("Check that the moving ticker is not the device holder")
+        self.phone.must("wait", "--for", "20", timeout=45)
+        self.wait_for_status("live", "running", seconds=5)
+
+    def _touch_pauses(self) -> None:
+        # the device holder takes the phone: he presses Home, which brings the launcher up
+        # outside the driver's own actions. A tap pauses it too, but only on
+        # something clickable, and after phase 1 Chrome restores the page's
+        # scroll, so no fixed point is sure to hit a button (2026-11-16).
+        self.phone.must("emu", "user", "home")
+        self.wait_for_status("live", "paused", "paused: the device holder is using the phone", seconds=5)
+
+    def _paused_look(self) -> None:
+        self.expect_code(self.phone.run("look", timeout=3), "paused")
+
+    def _resume_hands_it_back(self) -> None:
+        self.phone.must("emu", "answer", "resume")
+        self.wait_for_status("live", "running", seconds=5)
+        self.phone.must("look", timeout=3)
+
+    def _call_pauses(self) -> None:
+        self.phone.must("emu", "user", "call")
+        self.phone.must("emu", "user", "accept")
+        self.wait_for_status("live", "paused", "paused: the device holder is in a call", seconds=5)
+        self.phone.must("emu", "user", "hangup")
+        # The emulator's audio mode returns to normal a few seconds after its
+        # console accepts hangup. Resume after that, or the next busy tick
+        # would correctly pause the job again.
+        time.sleep(5)
+        self.phone.must("emu", "answer", "resume")
+        self.wait_for_status("live", "running", seconds=12)
+
+    def _notification_stop(self) -> None:
+        self.phone.must("emu", "answer", "notice-stop")
+        self.wait_for_status("ended", "stopped", "the device holder stopped it (notification)", seconds=12)
+
+    def _card_stop_reaches_wait(self) -> None:
+        self._start_handing_over_job("Check agent-companion Stop during a running wait")
+        reply: list[Reply] = []
+        error: list[E2EError] = []
+
+        def wait() -> None:
+            try:
+                # A bare wait returns once the screen is still (about a second):
+                # wait for words that never show, so the wait is still running.
+                reply.append(self.phone.run("wait", "--text", "Nothing on this page says this",
+                                            "--for", "55", timeout=70))
+            except E2EError as e:
+                error.append(e)
+
+        waiting = threading.Thread(target=wait, name="phone-e2e-card-wait", daemon=True)
+        waiting.start()
+        time.sleep(2)
+        self.phone.must("emu", "user", "card-stop")
+        waiting.join(timeout=10)
+        if waiting.is_alive():
+            raise E2EError("phone wait did not return within 10 s of agent-companion's Stop")
+        if error:
+            raise error[0]
+        if not reply:
+            raise E2EError("phone wait gave no reply after agent-companion's Stop")
+        self.expect_code(reply[0], "ended")
+        self.wait_for_status("ended", "stopped", "the device holder stopped it from agent-companion", seconds=5)
+
+    def _power_stops(self) -> None:
+        self._start_handing_over_job("Check the power button stops the job")
+        self.phone.must("emu", "user", "power")
+        self.wait_for_status("ended", "stopped", "the device holder stopped it (power)", seconds=12)
+        self.phone.must("emu", "user", "wake")
+
+    def _locked_phone_waits(self) -> None:
+        before = self.logs()
+        self.phone.must("emu", "user", "lock")
+        try:
+            self._start_handing_over_job("Check that a locked phone waits")
+            self.wait_for_status("live", "waiting", "the device holder's phone is locked", seconds=5)
+            self.expect_code(self.phone.run("look", timeout=3), "waiting")
+            # On the lock screen it is drawn collapsed, with no Stop to find;
+            # the shade's Stop is proven by the notification's check.
+            self.wait_for_new_log(before, "NOTICE posted wants", seconds=10)
+            self.phone.must("emu", "user", "unlock")
+            self.wait_for_status("live", "running", seconds=10)
+            self.phone.must("look", timeout=3)
+            self.phone.must("end")
+        finally:
+            self.phone.run("emu", "user", "lock-off")
+
+    def _call_delays_start(self) -> None:
+        self.phone.must("emu", "user", "call")
+        try:
+            self._start_handing_over_job("Check that a call delays the start")
+            self.wait_for_status("live", "waiting", "the device holder is in a call", seconds=5)
+            self.phone.must("emu", "user", "hangup")
+            self.wait_for_status("live", "running", seconds=15)
+            self.phone.must("end")
+        finally:
+            self.phone.run("emu", "user", "hangup")
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--apk", type=Path, default=DEFAULT_APK,
+                        help="the -emu APK, default: %(default)s")
+    args = parser.parse_args(argv)
+    if not args.apk.is_file():
+        print(f"FAIL setup: no APK at {args.apk}; build it with the --emulator flavor")
+        return 1
+
+    server = None
+    page_thread = None
+    phone = Phone()
+    job_started = False
+    emulator_started = False
+    passed = False
+    try:
+        server, page_thread = start_page_server()
+        phone.must("emu", "start", timeout=240)
+        emulator_started = True
+        # It boots where it was left: the clean snapshot first, then this build over its older one.
+        phone.must("emu", "reset", timeout=320)
+        phone.must("emu", "install", str(args.apk), timeout=320)
+        phone.must("emu", "chrome")
+        banner_before = phone.must("emu", "logs", "500").text
+        phone.must("start", "Exercise the phone driver's gates on the local checkout page")
+        job_started = True
+        run = GatesRun(phone)
+        run.wait_for_new_log(banner_before, "BANNER stop=", seconds=20)
+        run.dismiss_chrome_promo_and_wait_for_page()
+        run.run_checks()
+        run.run_handing_over_checks()
+        passed = True
+        return 0
+    except E2EError as e:
+        if str(e) not in {""}:
+            print(f"FAIL setup: {e}")
+        return 1
+    except OSError as e:
+        print(f"FAIL setup: {e}")
+        return 1
+    finally:
+        if emulator_started:
+            # What the driver decided, for a failed run's reader: its takeovers,
+            # pauses, stops and resumes (a passing run prints nothing here).
+            said = [line for line in phone.run("emu", "logs", "2000").text.splitlines()
+                    if re.search(r"the device holder's touch|pausing|stopped by|resumed|waits:|started$|mid-command|ENTER unnamed|driver on", line)]
+            if said and not passed:
+                print("driver said:\n  " + "\n  ".join(said[-30:]))
+        if job_started:
+            phone.run("end")
+        if emulator_started:
+            phone.run("emu", "user", "lock-off")
+            phone.run("emu", "user", "hangup")
+            phone.run("emu", "stop", timeout=80)
+        if server is not None:
+            server.shutdown()
+            server.server_close()
+        if page_thread is not None:
+            page_thread.join(timeout=2)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
