@@ -81,6 +81,35 @@ def test_parse_input_reads_what_sits_in_the_box():
     assert chat.parse_input("no box here") is None
 
 
+def test_parse_input_reads_a_box_that_has_scrolled():
+    """A tall box draws "↑ 1 more" in its top rule and starts mid-message."""
+    screen = "\n".join(["done", "\x1b[38;5;244m─── ↑ 1 more " + "─" * 30 + "\x1b[39m",
+                         "  overnight until we are caught up. Read the plan,",
+                         "  and work through it in order.", "  /clearRKeep", _RULE, "  status line"])
+    box = chat.parse_input(screen)
+    assert box is not None and "work through it" in box and box.endswith("/clearRKeep")
+
+
+def test_send_never_types_onto_a_scrolled_box(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch)
+    tall = "\n".join(["x", "\x1b[38;5;244m─── ↑ 1 more " + "─" * 30 + "\x1b[39m",
+                       "  an earlier long message", _RULE, "  status line"])
+
+    class Tall(Run):
+        def __call__(self, args, **kw):
+            if "capture-pane" not in args:
+                return super().__call__(args, **kw)
+            class R:
+                stdout = tall
+            return R()
+    run = Tall()
+    ok, why = chat.send(KNOWN["ada"] | {"status": "idle"}, "Keep", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and "already holds words" in why
+    assert not [c for c in run.calls if "send-keys" in c]
+
+
 class Screen(Run):
     """Fake tmux input-box states: `start` until anything is typed (`cleared`
     once Ctrl-C has been pressed), then `before` until the first Enter, then
