@@ -63,6 +63,70 @@ def test_size_limit_is_counted_in_utf8_bytes(tmp_path):
         _publish(store, tmp_path, tmp_path / "too-large.html", html="x" * (pages.MAX_BYTES + 1))
 
 
+def test_owner_for_controls_owner_pusher_and_replacement(tmp_path):
+    folders = []
+
+    def owner_for(folder):
+        folders.append(folder)
+        return "partner"
+
+    store = pages.Store(tmp_path / "pages", owner_for=owner_for)
+    pushed = []
+    first, made = _publish(store, tmp_path, tmp_path / "page.html",
+                           pusher=lambda *args: pushed.append(args))
+    second, remade = _publish(store, tmp_path, tmp_path / "page.html", title="Updated",
+                              pusher=lambda *args: pushed.append(args))
+
+    assert made and not remade
+    assert first["owner"] == second["owner"] == "partner"
+    assert first["id"] == second["id"]
+    assert pushed == [("partner", "Page from agent (project)", "Hello",
+                       f"/?view=pages&page={first['id']}", "pages")]
+    assert folders == [tmp_path.resolve(), tmp_path.resolve()]
+
+
+def test_household_refusal_hook_replaces_private_directory_check(tmp_path):
+    private = tmp_path / "private"
+    private.mkdir()
+    calls = []
+
+    def refusal(folder, source, owner):
+        calls.append((folder, source, owner))
+        return "no"
+
+    refusing = pages.Store(tmp_path / "refusing", private=[private], household_refusal=refusal)
+    with pytest.raises(pages.Refused, match="^no$"):
+        _publish(refusing, private, private / "page.html", household=True)
+    _publish(refusing, tmp_path, tmp_path / "owner-only.html", household=False)
+    assert calls == [(private.resolve(), (private / "page.html").resolve(), "owner")]
+
+    allowing = pages.Store(tmp_path / "allowing", private=[private],
+                           household_refusal=lambda folder, source, owner: None)
+    record, made = _publish(allowing, private, private / "allowed.html", household=True)
+    assert made and record["household"] is True
+
+
+def test_visible_hook_accepts_a_host_viewer_and_default_visibility_remains(tmp_path):
+    viewer = object()
+    seen = []
+
+    def visible(record, actual_viewer):
+        seen.append((record["title"], actual_viewer))
+        return record["title"].startswith("A")
+
+    store = pages.Store(tmp_path / "custom", visible=visible)
+    _publish(store, tmp_path, tmp_path / "alpha.html", title="Alpha")
+    _publish(store, tmp_path, tmp_path / "beta.html", title="Beta")
+    assert [record["title"] for record in store.list_for(viewer)] == ["Alpha"]
+    assert {title for title, _ in seen} == {"Alpha", "Beta"}
+    assert all(actual_viewer is viewer for _, actual_viewer in seen)
+
+    default = pages.Store(tmp_path / "default")
+    _publish(default, tmp_path, tmp_path / "default.html", title="Alpha")
+    assert [record["title"] for record in default.list_for("owner")] == ["Alpha"]
+    assert default.list_for("shared") == []
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     private = tmp_path / "private"
@@ -132,3 +196,11 @@ def test_shared_page_is_available_only_to_an_existing_shared_identity(client, mo
     assert [page["id"] for page in c.get("/api/pages").json()["pages"]] == [page_id]
     assert c.get(f"/pages/{page_id}").status_code == 200
     assert c.request("DELETE", f"/api/pages/{page_id}", json={}, headers=SAME).status_code == 404
+
+
+def test_can_view_follows_the_visible_hook_and_defaults_to_can_see(tmp_path):
+    record = {"id": "p1", "owner": "owner", "household": True}
+    assert pages.Store(tmp_path / "pages").can_view(record, "partner")
+    strict = pages.Store(tmp_path / "pages", visible=lambda rec, viewer: viewer == rec["owner"])
+    assert strict.can_view(record, "owner")
+    assert not strict.can_view(record, "partner")

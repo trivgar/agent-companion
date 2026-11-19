@@ -56,7 +56,7 @@ def list_pages(request: Request):
 def html(page_id: str, request: Request):
     store = _store()
     record = store.get(page_id)
-    if record is None or not pages_mod.can_see(record, _viewer(request)):
+    if record is None or not store.can_view(record, _viewer(request)):
         raise HTTPException(status_code=404, detail="page not found")
     content = store.html(page_id)
     if content is None:

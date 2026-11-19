@@ -94,15 +94,25 @@ def page_summary(record: dict[str, Any]) -> dict[str, Any]:
 
 
 class Store:
-    """One outside-the-repository directory per page."""
+    """One outside-the-repository directory per page.
+
+    owner_for, household_refusal, and visible let a host customize ownership, refusal, and visibility.
+    They default to None, retaining the default owner, private-folder refusal, and can_see policy.
+    """
 
     def __init__(self, root: str | Path | None = None, *, now: Callable[[], float] = time.time,
                  token: Callable[[int], str] = secrets.token_urlsafe,
-                 private: Iterable[str | Path] | None = None):
+                 private: Iterable[str | Path] | None = None,
+                 owner_for: Callable[[Path], str] | None = None,
+                 household_refusal: Callable[[Path, Path, str], str | None] | None = None,
+                 visible: Callable[[dict, Any], bool] | None = None):
         self.root = Path(root) if root is not None else page_dir()
         self.now = now
         self.token = token
         self.private = tuple(_absolute(path) for path in private) if private is not None else None
+        self.owner_for = owner_for
+        self.household_refusal = household_refusal
+        self.visible = visible
 
     def _root(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -156,8 +166,12 @@ class Store:
         except (OSError, UnicodeDecodeError):
             return None
 
-    def list_for(self, viewer: str | None) -> list[dict[str, Any]]:
-        records = [page_summary(record) for record in self._records() if can_see(record, viewer)]
+    def can_view(self, record: dict[str, Any], viewer: Any) -> bool:
+        """The one visibility rule for every read: the host's visible hook, else can_see."""
+        return (self.visible or can_see)(record, viewer)
+
+    def list_for(self, viewer: Any) -> list[dict[str, Any]]:
+        records = [page_summary(record) for record in self._records() if self.can_view(record, viewer)]
         return sorted(records, key=lambda record: float(record.get("updated") or 0), reverse=True)
 
     def _find_source(self, owner: str, source: str) -> dict[str, Any] | None:
@@ -187,12 +201,18 @@ class Store:
 
         folder_path = _absolute(folder)
         source_path = _absolute(source)
-        protected = self.private if self.private is not None else private_dirs()
-        if household and (is_private_folder(folder_path, protected) or is_private_folder(source_path, protected)):
-            raise Refused("pages from pages_private_dirs cannot be household pages")
+        owner = self.owner_for(folder_path) if self.owner_for is not None else OWNER_ID
+        if self.household_refusal is None:
+            protected = self.private if self.private is not None else private_dirs()
+            if household and (is_private_folder(folder_path, protected) or is_private_folder(source_path, protected)):
+                raise Refused("pages from pages_private_dirs cannot be household pages")
+        elif household:
+            refusal = self.household_refusal(folder_path, source_path, owner)
+            if refusal:
+                raise Refused(refusal)
 
         self._root()
-        existing = self._find_source(OWNER_ID, str(source_path))
+        existing = self._find_source(owner, str(source_path))
         stamp = self.now()
         created = existing is None
         if existing is None:
@@ -212,7 +232,7 @@ class Store:
             os.chmod(page_folder, 0o700)
 
         record.update({
-            "title": title.strip(), "owner": OWNER_ID, "household": bool(household),
+            "title": title.strip(), "owner": owner, "household": bool(household),
             "speaker": str(speaker or "an agent"), "project": str(project or folder_path.name),
             "source": str(source_path), "updated": stamp, "bytes": size,
         })
@@ -220,7 +240,7 @@ class Store:
         self._write(page_folder / "meta.json", json.dumps(record, sort_keys=True, separators=(",", ":")))
 
         if created and pusher is not None:
-            pusher(OWNER_ID, f"Page from {record['speaker']} ({record['project']})", record["title"],
+            pusher(owner, f"Page from {record['speaker']} ({record['project']})", record["title"],
                    f"/?view=pages&page={record['id']}", "pages")
         return dict(record), created
 
