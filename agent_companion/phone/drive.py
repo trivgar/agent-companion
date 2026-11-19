@@ -321,8 +321,13 @@ class Relay:
             if not allowed["ok"]:
                 return allowed
         device_secret = secrets.token_urlsafe(32) if first_pairing else ""
-        approved = kind == "emulator" or (kind == "phone" and old.get("kind") == "phone"
-                                             and self._device_approved(d, did, old))
+        if kind == "emulator":
+            # Only the first emulator is taken on trust; a second one never
+            # replaces it silently, so a job meant for one cannot reach another.
+            current = d.get("emulator")
+            approved = current in (None, did) or current not in d["devices"]
+        else:
+            approved = old.get("kind") == "phone" and self._device_approved(d, did, old)
         rec = {"kind": kind, "model": str(body.get("model") or "")[:80],
                "android": str(body.get("android") or "")[:16],
                "fcm": str(body.get("fcm") or old.get("fcm") or "")[:4096],

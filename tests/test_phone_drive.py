@@ -965,3 +965,16 @@ def test_approving_a_phone_revokes_every_other_phone(tmp_path):
     assert r.approve_device(b)["ok"]
     back = r.register({"device_id": a, "kind": "phone", "model": "Old"}, secret=sa)
     assert back["role"] == "pending" and r.devices()["phone"] == b
+
+
+def test_a_second_emulator_never_replaces_the_first_on_its_own(tmp_path):
+    r = make(tmp_path)
+    first = register(r)
+    assert first["role"] == "emulator" and r.devices()["emulator"] == DID
+    other = "emu-fedcba9876543210"
+    second = register(r, did=other)
+    assert second["role"] == "pending" and r.devices()["emulator"] == DID
+    again = r.register({"device_id": DID, "kind": "emulator", "model": "test-emulator", "android": "15",
+                        "fcm": "tok", "driver_on": True, "app_version": "1.1700-emu"},
+                       secret=first["device_secret"])
+    assert again["role"] == "emulator" and r.devices()["emulator"] == DID
