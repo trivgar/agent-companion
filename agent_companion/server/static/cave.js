@@ -46,6 +46,7 @@
       background:var(--raised); white-space:pre-wrap; overflow-wrap:anywhere; }
     .msg.me { align-self:flex-end; background:var(--sunk); border-color:var(--line-strong); }
     .msg.work, .msg.asked, .msg.spoke { color:var(--dim); font-size:.85rem; }
+    .msg .by { display:block; color:var(--dim); font-size:.8rem; margin:0 0 2px; }
     .msg.bad { border-color:var(--alert); } #chat-bar { display:flex; gap:8px; align-items:center;
       margin:0 0 10px; flex-wrap:wrap; } #chat-bar select { min-height:44px; font:inherit; color:var(--fg);
       background:var(--sunk); border:1px solid var(--line); border-radius:8px; padding:0 10px; }
