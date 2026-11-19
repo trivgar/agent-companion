@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Driver test checkout</title>
+<style>
+  body { font: 16px sans-serif; margin: 12px; }
+  input, textarea, button { display: block; width: 100%; margin: 6px 0; padding: 10px; font-size: 16px; box-sizing: border-box; }
+  .row { display: flex; gap: 8px; }
+  .row button { width: auto; flex: 1; }
+  .icon { width: 56px !important; flex: 0 0 56px !important; }
+  #said { color: #555; min-height: 1.4em; }
+  #ticker { display: flex; overflow-x: auto; margin: 6px 0; border: 1px solid #ccc; }
+  #ticker div { flex: 0 0 100%; box-sizing: border-box; padding: 14px 10px; }
+</style>
+</head>
+<body>
+<h1>Driver test checkout</h1>
+<p>A page for the phone driver's gate tests. Nothing here pays, sends or deletes.</p>
+<input type="search" placeholder="Search products" id="q">
+<input placeholder="Name on order" id="name">
+<input type="password" placeholder="Password" id="pw">
+<input inputmode="numeric" autocomplete="one-time-code" placeholder="Verification code" id="code">
+<input placeholder="Zip code" id="zip">
+<textarea placeholder="Message to the seller" id="msg"></textarea>
+<div class="row" role="group">
+  <button id="pay">Pay $12.40</button>
+  <button id="transfer">Transfer</button>
+</div>
+<div class="row" role="group">
+  <button id="later">Save for later</button>
+  <button class="icon" id="mystery"><svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#888"/></svg></button>
+</div>
+<div class="row" role="group">
+  <button id="send">Send</button>
+  <button id="delete">Delete account</button>
+</div>
+<p id="said"></p>
+<div id="ticker" aria-label="Today's deals">
+  <div>Deal 1: socks, two for one</div>
+  <div>Deal 2: a kettle, 20% off</div>
+  <div>Deal 3: free shipping over $40</div>
+  <div>Deal 4: a lamp, 15% off</div>
+  <div>Deal 5: batteries, three for two</div>
+  <div>Deal 6: a mug, half price</div>
+</div>
+<script>
+  for (const b of document.querySelectorAll('button')) {
+    b.addEventListener('click', () => { document.getElementById('said').textContent = 'tapped: ' + (b.textContent.trim() || b.id); });
+  }
+  // A ticker that scrolls by itself, one deal every 2 seconds: what moves on
+  // its own must never read as the device holder taking the phone (step 4b, Task 1).
+  const t = document.getElementById('ticker');
+  setInterval(() => { t.scrollLeft = (t.scrollLeft + t.clientWidth) % t.scrollWidth; }, 2000);
+</script>
+</body>
+</html>

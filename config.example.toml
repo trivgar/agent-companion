@@ -17,6 +17,16 @@ app_name = "Companion"
 # Which features load, in nav order (leave out for all of them)
 # features = "sessions,files,asks,chat,mail,comms,voicelab,push"
 
+# Optional phone driver. It is off by default, so no phone-driver route,
+# dashboard view, CLI, or MCP server is available until this is true. The
+# test emulator may then pair; allow a physical device only when both are true.
+# phone_driver = false
+# phone_driver_real_phone = false
+# phone_driver_agent = "phone-agent"
+# phone_android_sdk = "~/android-sdk"
+# phone_android_package = "com.agentcompanion.app"
+# phone_agent_key_file = "~/.config/agent-companion/phone-agent.key"
+
 # Where your sessions live and where the app keeps its own files
 # claude_home = "~/.claude"
 # codex_home = "~/.codex"      # optional: show Codex plan limits from local rollout logs

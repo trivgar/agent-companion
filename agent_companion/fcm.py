@@ -102,3 +102,26 @@ def send_ring(ring_id: str) -> bool:
     except Exception:
         return False
     return bool(getattr(response, "status_code", 0) == 200)
+
+
+def send_drive(token: str, job_id: str) -> str:
+    """Send a phone-driver wakeup with only its kind and job identifier."""
+    token = str(token or "")
+    if not token:
+        return "no token"
+    client = _authed()
+    if client is None:
+        return "not configured"
+    session, project = client
+    message = {"message": {"token": token, "data": {"kind": "drive", "job": str(job_id)},
+                           "android": {"priority": "HIGH", "ttl": "60s"}}}
+    try:
+        response = session.post(f"https://fcm.googleapis.com/v1/projects/{project}/messages:send",
+                                json=message, timeout=10)
+    except Exception:
+        return "failed"
+    if getattr(response, "status_code", 0) == 200:
+        return "ok"
+    if getattr(response, "status_code", 0) in (404, 410):
+        return "gone"
+    return f"http {getattr(response, 'status_code', 0)}"

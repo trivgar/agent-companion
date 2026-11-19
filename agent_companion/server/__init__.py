@@ -68,7 +68,13 @@ def _enabled() -> list[str]:
     want = config.get("features")
     if isinstance(want, str):
         want = [w.strip() for w in want.split(",") if w.strip()]
-    return [f for f in FEATURES if not want or f in want]
+    return [f for f in FEATURES if (not want or f in want)
+            and (f != "phone" or _phone_driver_enabled())]
+
+
+def _phone_driver_enabled() -> bool:
+    value = config.get("phone_driver", False)
+    return value is True or (isinstance(value, str) and value.strip().lower() in ("1", "true", "yes", "on"))
 
 
 def live_call_enabled() -> bool:
