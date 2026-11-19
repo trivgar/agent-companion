@@ -1,0 +1,11 @@
+[Unit]
+Description=agent-companion: is the model picker still Anthropic's lineup
+
+[Service]
+Type=oneshot
+# Assumes the repo is cloned at ~/agent-companion with a venv in .venv
+# (INSTALL.md step 3). A difference reaches the owner's devices as one push.
+WorkingDirectory=%h/agent-companion
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/agent-companion/.venv/bin/python -m agent_companion.modelwatch
+TimeoutStartSec=2min

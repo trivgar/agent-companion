@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the model picker against Anthropic's lineup once a day
+
+[Timer]
+OnCalendar=*-*-* 09:17
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
