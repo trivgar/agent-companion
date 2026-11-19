@@ -8,6 +8,7 @@ import android.os.Bundle;
 
 import android.webkit.WebView;
 
+import app.companion.drive.Device;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.WebViewListener;
 import com.google.firebase.messaging.FirebaseMessaging;
@@ -34,6 +35,7 @@ public class MainActivity extends BridgeActivity {
         // Every start says where to push: cheap, and a token Firebase rotated
         // while the server was down is caught the next time he opens the app.
         FirebaseMessaging.getInstance().getToken().addOnSuccessListener(t -> CompanionApp.register(this, t));
+        Device.register(this);
         // The page's one native call, for its Restart sshd button.
         if (getBridge() != null) {
             getBridge().getWebView().addJavascriptInterface(new Native(), getString(R.string.native_name));
@@ -55,6 +57,7 @@ public class MainActivity extends BridgeActivity {
                                 if (CompanionApp.setOwnerKey(MainActivity.this, k)) {
                                     FirebaseMessaging.getInstance().getToken()
                                             .addOnSuccessListener(t -> CompanionApp.register(MainActivity.this, t));
+                                    Device.register(MainActivity.this);
                                 }
                             });
                 }
@@ -82,6 +85,13 @@ public class MainActivity extends BridgeActivity {
                 return TermuxSshd.NO_PERMISSION;
             }
             return TermuxSshd.restart(MainActivity.this);
+        }
+
+        // A page can report its live call even when the audio mode does not
+        // reveal it; the driver waits until that call ends.
+        @android.webkit.JavascriptInterface
+        public void callState(boolean up) {
+            app.companion.drive.LiveCall.up = up;
         }
 
         // The page hung up: the phone's call (RingConnection) ends with it.

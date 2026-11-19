@@ -29,6 +29,7 @@ final class RingConnection extends Connection {
         setAudioModeIsVoip(true);
         if (current != null) current.end(DisconnectCause.OTHER);
         current = this;
+        app.companion.drive.LiveCall.ring = true;
         h.postDelayed(this::miss, RING_MS);
     }
 
@@ -78,6 +79,9 @@ final class RingConnection extends Connection {
         RingNotice.cancel(c);
         setDisconnected(new DisconnectCause(cause));
         destroy();
-        if (current == this) current = null;
+        if (current == this) {
+            current = null;
+            app.companion.drive.LiveCall.ring = false;
+        }
     }
 }

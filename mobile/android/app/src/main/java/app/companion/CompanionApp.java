@@ -16,7 +16,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 // Connects only to the configured server address.
-final class CompanionApp {
+public final class CompanionApp {
     static final String TAG = "Companion";
 
     private CompanionApp() {}
@@ -51,6 +51,9 @@ final class CompanionApp {
     }
 
     static void register(Context c, String token) {
+        // The test emulator is reserved for the driver; it must not receive
+        // comms, notifications or calls intended for a phone someone holds.
+        if (BuildConfig.EMULATOR_BUILD) return;
         final Context app = c.getApplicationContext();
         new Thread(() -> {
             try {
@@ -64,7 +67,7 @@ final class CompanionApp {
         }, "cc-register").start();
     }
 
-    static HttpURLConnection open(Context c, String path, int timeoutMs) throws Exception {
+    public static HttpURLConnection open(Context c, String path, int timeoutMs) throws Exception {
         HttpURLConnection h = (HttpURLConnection) new URL(base(c) + path).openConnection();
         h.setConnectTimeout(timeoutMs);
         h.setReadTimeout(timeoutMs);

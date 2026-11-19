@@ -4,6 +4,8 @@ import android.util.Log;
 
 import androidx.annotation.NonNull;
 
+import app.companion.drive.Device;
+import app.companion.drive.DriverService;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 
@@ -37,6 +39,12 @@ public class CommsMessagingService extends FirebaseMessagingService {
             Log.i(CompanionApp.TAG, "sshd_restart push: " + TermuxSshd.restart(this));
             return;
         }
+        if ("drive".equals(msg.getData().get("kind"))) {
+            // A push carries only the job id; the driver fetches the job from
+            // the authenticated relay before it can act.
+            DriverService.wake(this, msg.getData().get("job"));
+            return;
+        }
         if ("comms".equals(msg.getData().get("kind"))) {
             try {
                 CommsPlayerService.wake(this);
@@ -51,5 +59,6 @@ public class CommsMessagingService extends FirebaseMessagingService {
     @Override
     public void onNewToken(@NonNull String token) {
         CompanionApp.register(this, token);
+        Device.register(this);
     }
 }

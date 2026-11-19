@@ -83,7 +83,34 @@
         <receiver
             android:name=".RingActions"
             android:exported="false" />
+        <!-- The driver is disabled unless its build explicitly opts in. Android
+             then still requires the device owner to enable it in Accessibility. -->
+        <service
+            android:name=".drive.DriverService"
+            android:enabled="@bool/driver_enabled"
+            android:exported="true"
+            android:label="@string/driver_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/driver_service" />
+        </service>
     </application>
+
+    <!-- The driver opens an app by name and recognizes the home screen. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+    </queries>
 
     <!-- Permissions -->
 

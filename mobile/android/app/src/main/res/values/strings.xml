@@ -2,4 +2,6 @@
 <resources>
     <string name="package_name">app.companion</string>
     <string name="custom_url_scheme">app.companion</string>
+    <string name="driver_label">Agent Companion driver</string>
+    <string name="driver_description">Lets an agent you ask look at the screen and tap, type and scroll for you, one step at a time, with a banner and Stop while it drives.</string>
 </resources>
