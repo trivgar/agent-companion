@@ -51,7 +51,9 @@ TAIL_BYTES = 600_000          # of each transcript: a reply is near the end
 MAX_TAIL_BYTES = 4_800_000    # how far back a window reads when the tail is short
 KEEP = 400                    # sends remembered
 MAX_TEXT = 4000
-INPUT_APPEAR_WAIT_S = 3.0
+# 2026-11-18: a busy, memory-squeezed session took longer than 3 s to redraw
+# typed words; the send gave up unpressed and the words then sat in its box.
+INPUT_APPEAR_WAIT_S = 12.0
 # A busy session once accepted a message 0.23 s after an older 1.3 s deadline.
 INPUT_CLEAR_WAIT_S = 5.0
 # An Enter that lands as part of a paste becomes a newline in the box: press it
@@ -461,7 +463,11 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
     # words are cleared, with Ctrl-C, only while the session is idle: at a
     # working session Ctrl-C interrupts its turn. Anything else is refused.
     _, before = _box_now(target["pane"], run)
-    if before and before.strip():
+    # The words of this very message already sit there from a send that typed
+    # them but never saw them in time: press Enter on them, idle or working.
+    retyped = bool(before and before.strip()) and "".join(before.split()) == "".join(line.split()) \
+        and _ours(before, target["name"])
+    if before and before.strip() and not retyped:
         shown = " ".join(before.split())[:80]
         if target.get("status") != "idle" or not _ours(before, target["name"]):
             return False, (f"{target['name']}'s input box already holds words not sent from here "
@@ -476,13 +482,14 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
             return False, f"{target['name']}'s input box still holds earlier unsent words (\"{shown}\")"
 
     try:
-        run(["tmux", "send-keys", "-t", target["pane"], "-l", "--", line], check=True, timeout=5)
+        if not retyped:
+            run(["tmux", "send-keys", "-t", target["pane"], "-l", "--", line], check=True, timeout=5)
         typed = True
         # Do not press Enter until the terminal has redrawn the words we sent.
         # A stalled or unreadable pane is not evidence that its input is clear.
-        appeared = False
+        appeared = retyped
         appear_deadline = time.monotonic() + max(0.0, appear_wait_s)
-        for _ in range(_input_polls(appear_wait_s, check_s)):
+        for _ in range(0 if appeared else _input_polls(appear_wait_s, check_s)):
             remaining = appear_deadline - time.monotonic()
             if remaining <= 0:
                 break
