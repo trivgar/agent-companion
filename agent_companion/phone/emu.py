@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 
 from .. import config
-from . import job
+from . import job, settings
 
 
 class _LoadGuard:
@@ -48,7 +48,6 @@ loadguard = _LoadGuard()
 
 SDK = Path(str(config.get("phone_android_sdk") or os.environ.get("ANDROID_HOME")
                or Path.home() / "android-sdk")).expanduser()
-AVD = "agent-companion-test"
 PORT = 5580
 SERIAL = f"emulator-{PORT}"
 UNIT = "phone-emulator"
@@ -102,7 +101,7 @@ def mem_available_kb(meminfo: str) -> int:
 def refusal(holding: str | None, mem_kb: int, kvm: str) -> str | None:
     """Why `start` must not start, in words, or None."""
     if holding == "gaming":
-        return "the device holder is gaming (the load guard says so): the emulator waits until he stops"
+        return f"{settings.holder()} is gaming (the load guard says so): the emulator waits until the game ends"
     if holding == "hot":
         return "the CPU is hot (the load guard says so): try again when it cools"
     if mem_kb < MIN_FREE_KB:
@@ -113,7 +112,7 @@ def refusal(holding: str | None, mem_kb: int, kvm: str) -> str | None:
 
 
 def emulator_argv(sdk: Path = SDK) -> list[str]:
-    return [str(sdk / "emulator" / "emulator"), "-avd", AVD, "-port", str(PORT),
+    return [str(sdk / "emulator" / "emulator"), "-avd", settings.avd(), "-port", str(PORT),
             "-no-window", "-no-audio", "-no-boot-anim", "-gpu", "swiftshader_indirect",
             "-memory", str(GUEST_MB), "-no-metrics",
             # No quick boot: every job resets to the clean snapshot anyway, and

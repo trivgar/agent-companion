@@ -39,6 +39,8 @@ import threading
 import time
 from pathlib import Path
 
+from . import settings
+
 DATA = Path(os.environ.get("AGENT_COMPANION_PHONE_DIR")
             or Path.home() / ".local" / "share" / "agent-companion" / "phone")
 AGENT_KEY = Path(os.environ.get("AGENT_COMPANION_PHONE_AGENT_KEY")
@@ -67,13 +69,19 @@ TIMING = {"tick": 0.1, "pickup_resend_s": 30.0, "pickup_give_up_s": 60.0, "start
 NOT_ANSWERING = {"phone": "the phone isn't answering",
                  "emulator": "the emulator isn't answering: is it up, with the -emu build and its driver on? "
                              "(phone emu status)"}
-DRIVER_OFF = "the driver is off: Settings, Accessibility, agent-companion"
 VIEW = ("id", "device", "task", "agent", "state", "outcome", "detail", "created", "started", "ended",
         "last_action", "prompt", "your_turn", "by")
-ENDED_WORDS = {"expired": "the job expired on the phone",
-               "lost": "the phone lost agent-companion for two minutes and gave itself back",
-               "failed": "the driver failed"}
 LOG = logging.getLogger(__name__)
+
+
+def DRIVER_OFF() -> str:
+    return f"the driver is off: Settings, Accessibility, {settings.app_name()}"
+
+
+def ENDED_WORDS() -> dict[str, str]:
+    return {"expired": "the job expired on the phone",
+            "lost": f"the phone lost {settings.app_name()} for two minutes and gave itself back",
+            "failed": "the driver failed"}
 
 
 def _no(code: str, text: str, **extra) -> dict:
@@ -342,7 +350,7 @@ class Relay:
         _write_json(self.data / "devices.json", d)
         if kind == "phone" and first_pairing:
             self.notify("Phone driver", "A new phone wants to drive: "
-                        f"{rec['model'] or 'a phone'}. Approve it in agent-companion's phone section, or forget it.")
+                        f"{rec['model'] or 'a phone'}. Approve it in {settings.app_name()}'s phone section, or forget it.")
         out = {"ok": True, "role": kind if approved else "pending", "driver_on": rec["driver_on"]}
         if first_pairing:
             out["device_secret"] = device_secret
@@ -419,7 +427,8 @@ class Relay:
             return _no("bad_args", "a job needs its task, in a line")
         agent = re.sub(r"[^A-Za-z0-9 _.-]", "", str(agent or ""))[:40].strip() or "agent"
         if device == "phone" and not self.key_ok(key):
-            return _no("no_key", "a job on the device holder's phone is the phone agent's: hand phone-agent the task")
+            return _no("no_key", f"a job on {settings.holder_possessive()} phone is the phone agent's: "
+                       f"hand {settings.agent_name()} the task")
         live = self.live_on(device)
         if live:
             return _no("busy", f"the {device} already has a job: {live['task']} ({live['agent']})",
@@ -431,7 +440,7 @@ class Relay:
                 or not self._device_approved(d, device_id, dev)):
             return _no("no_device", f"no {device} has registered a driver yet")
         if not dev.get("driver_on"):
-            return _no("driver_off", DRIVER_OFF)
+            return _no("driver_off", DRIVER_OFF())
         now = self.clock()
         job_cap = secrets.token_urlsafe(24)
         job = {"id": time.strftime("%Y%m%d-%H%M%S", time.localtime(now)) + "-" + secrets.token_hex(3),
@@ -464,7 +473,8 @@ class Relay:
         job["pushes"].append(self.clock())
         self._log(job, {"kind": "push", "result": got[:80]})
         if got == "gone" and job["state"] == "waking":
-            self.end_job(job, "failed", f"the {job['device']}'s push address is gone: open the agent-companion app on it once")
+            self.end_job(job, "failed", f"the {job['device']}'s push address is gone: "
+                         f"open the {settings.app_name()} app on it once")
         else:
             self._save(job)
 
@@ -482,7 +492,7 @@ class Relay:
         if job is None:
             return _no("no_job", f"no job {job_id}")
         if job["device"] == "phone" and not self.key_ok(key):
-            return _no("no_key", "a job on the device holder's phone is the phone agent's")
+            return _no("no_key", f"a job on {settings.holder_possessive()} phone is the phone agent's")
         if cap is not None and not self._job_cap_ok(job, cap):
             return _no("no_cap", "this job's capability is missing or does not match")
         if (job["id"], cmd_id) in self.results:
@@ -532,7 +542,7 @@ class Relay:
         if st == "waiting":
             return job["detail"]
         if st == "paused":
-            return job["detail"] + "; the job goes on when he taps Resume"
+            return job["detail"] + f"; the job goes on when {settings.holder()} taps Resume"
         if st in ("waking", "starting"):
             return f"the {job['device']} has not started the job yet"
         return f"the {job['device']} has not taken the command"
@@ -543,7 +553,7 @@ class Relay:
         if job is None:
             return _no("no_job", f"no job {job_id}")
         if job["device"] == "phone" and not self.key_ok(key):
-            return _no("no_key", "a job on the device holder's phone is the phone agent's")
+            return _no("no_key", f"a job on {settings.holder_possessive()} phone is the phone agent's")
         if cap is not None and not self._job_cap_ok(job, cap):
             return _no("no_cap", "this job's capability is missing or does not match")
         if job["state"] != "ended":
@@ -590,7 +600,8 @@ class Relay:
         if holds:
             held = self.jobs.get(holds) or self._read_job(holds)
             if held is None or held.get("device_id") != device_id:
-                return {"type": "stop", "job": holds, "why": "unknown", "text": "agent-companion has no such job"}
+                return {"type": "stop", "job": holds, "why": "unknown",
+                        "text": f"{settings.app_name()} has no such job"}
             if held.get("state") == "ended":
                 if not held.get("told"):
                     held["told"] = True
@@ -727,11 +738,11 @@ class Relay:
         elif kind == "locked":
             since = job["waiting_since"] or now
             job.update(state="waiting", waiting_since=since,
-                       detail=f"the device holder's phone is locked: waiting for him to unlock it (until "
+                       detail=f"{settings.holder_possessive()} phone is locked: waiting for {settings.holder()} to unlock it (until "
                               f"{_hm(since + self.t['lock_wait_s'])})")
         elif kind == "call_wait":
             job.update(state="waiting", waiting_since=job["waiting_since"] or now,
-                       detail="the device holder is in a call: the job starts when it ends")
+                       detail=f"{settings.holder()} is in a call: the job starts when it ends")
         elif kind == "prompt":
             job["prompt"] = {"cmd_id": str(body.get("cmd_id") or "")[:40], "what": what, "at": now}
             row.update(cmd_id=job["prompt"]["cmd_id"], what=what)
@@ -749,7 +760,8 @@ class Relay:
         elif kind == "takeover":
             why = "call" if body.get("why") == "call" else "touch"
             job.update(state="paused", paused_since=job.get("paused_since") or now,
-                       detail="paused: the device holder is in a call" if why == "call" else "paused: the device holder is using the phone")
+                       detail=f"paused: {settings.holder()} is in a call" if why == "call"
+                       else f"paused: {settings.holder()} is using the phone")
             row.update(why=why)
         elif kind == "resume":
             job.update(state="running", detail=f"driving the {job['device']}", last_cmd=now, paused_since=None)
@@ -757,18 +769,18 @@ class Relay:
             by = str(body.get("by") or "")
             by = by if by in STOPPED_BY else "phone"
             self._log(job, {**row, "by": by})
-            self.end_job(job, "stopped", f"the device holder stopped it ({by})", by=by, told=True)
+            self.end_job(job, "stopped", f"{settings.holder()} stopped it ({by})", by=by, told=True)
             return {"ok": True}
         elif kind == "end":
             outcome = str(body.get("outcome") or "")
             outcome = outcome if outcome in DEVICE_ENDS else "failed"
-            text = str(body.get("text") or "")[:300] or ENDED_WORDS[outcome]
+            text = str(body.get("text") or "")[:300] or ENDED_WORDS()[outcome]
             self._log(job, {**row, "outcome": outcome, "text": text})
             self.end_job(job, outcome, text, told=True)
             return {"ok": True}
         elif kind == "driver_off":
             self._log(job, row)
-            self.end_job(job, "failed", DRIVER_OFF, told=True)
+            self.end_job(job, "failed", DRIVER_OFF(), told=True)
             return {"ok": True}
         self._log(job, row)
         self._save(job)
@@ -791,7 +803,7 @@ class Relay:
         job = self.jobs.get(job_id)
         if job is None or job["state"] == "ended":
             return _no("no_job", "no live job to stop")
-        self.end_job(job, "stopped", "the device holder stopped it from agent-companion", by="card")
+        self.end_job(job, "stopped", f"{settings.holder()} stopped it from {settings.app_name()}", by="card")
         return {"ok": True, "job": self.view(job)}
 
     def tidy(self) -> None:
@@ -809,15 +821,15 @@ class Relay:
             elif st == "starting" and now - (job["fetched"] or now) >= self.t["starting_s"]:
                 self.end_job(job, "failed", "the driver took the job and never started it")
             elif st == "waiting" and now - (job["waiting_since"] or now) >= self.t["lock_wait_s"] + 60:
-                self.end_job(job, "expired", "the device holder did not hand the phone over in 15 minutes")
+                self.end_job(job, "expired", f"{settings.holder()} did not hand the phone over in 15 minutes")
             elif st in ("running", "paused"):
                 if job["last_poll"] and now - job["last_poll"] >= self.t["lost_s"]:
-                    self.end_job(job, "lost", f"the {job['device']} stopped asking agent-companion for commands")
+                    self.end_job(job, "lost", f"the {job['device']} stopped asking {settings.app_name()} for commands")
                 elif st == "paused":
                     if now - (job.get("paused_since") or now) >= self.t["lock_wait_s"]:
-                        self.end_job(job, "expired", "the device holder did not hand the phone back in 15 minutes")
+                        self.end_job(job, "expired", f"{settings.holder()} did not hand the phone back in 15 minutes")
                 elif job["your_turn"] and now - job["your_turn"]["at"] >= self.t["lock_wait_s"]:
-                    self.end_job(job, "expired", "the device holder did not take his turn in 15 minutes, so the job ended and the phone went back")
+                    self.end_job(job, "expired", f"{settings.holder()} did not take a turn in 15 minutes, so the job ended and the phone went back")
                 elif job["prompt"] and now - job["prompt"]["at"] >= self.t["prompt_s"]:
                     # The device lets a prompt go after five minutes and says so; one
                     # that never said so is let go here, as a timeout.

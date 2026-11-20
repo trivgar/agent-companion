@@ -55,7 +55,29 @@ class _Leases:
         return {"ok": False, "detail": "lease is not held by this caller"}
 
 
-leases = _Leases()
+_file_leases = _Leases()
+_lease_backend = _file_leases
+
+
+class _LeaseProxy:
+    """Keep imported ``leases`` references pointed at the selected backend."""
+    def live(self, device: str) -> dict | None:
+        return _lease_backend.live(device)
+
+    def take(self, device: str, holder: str, seconds: float, *, why: str = "", session: str = "") -> dict:
+        return _lease_backend.take(device, holder, seconds, why=why, session=session)
+
+    def release(self, device: str, holder: str, *, session: str = "") -> dict:
+        return _lease_backend.release(device, holder, session=session)
+
+
+leases = _LeaseProxy()
+
+
+def set_lease_backend(backend) -> None:
+    """Use a host lease backend; None restores the built-in file lease."""
+    global _lease_backend
+    _lease_backend = _file_leases if backend is None else backend
 
 
 def session_id() -> str:

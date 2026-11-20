@@ -179,6 +179,25 @@ def test_the_phone_is_the_phone_agents_alone(tmp_path):
     assert r.end(jid)["code"] == "no_key"
 
 
+def test_a_host_can_name_the_app_and_holder(monkeypatch, tmp_path):
+    monkeypatch.setenv("AGENT_COMPANION_PHONE_HOLDER", "Sam")
+    monkeypatch.setenv("AGENT_COMPANION_PHONE_APP_NAME", "HomeBase")
+    r = make(tmp_path)
+    refused = asyncio.run(r.start("phone", "x", "agent-one"))
+    assert refused["code"] == "no_key" and "Sam's phone" in refused["text"]
+    assert "hand phone-agent the task" in refused["text"]
+    register(r)
+
+    async def go():
+        _, jid = await started(r)
+        r.event({"device_id": DID, "job": jid, "kind": "locked"})
+        return await r.command(jid, "c-000001", "tap", {"n": 1})
+
+    locked = asyncio.run(go())
+    assert "Sam's phone" in locked["text"] and "waiting for Sam to unlock it" in locked["text"]
+    assert "HomeBase" in P.DRIVER_OFF()
+
+
 def test_one_resend_then_the_phone_isnt_answering(tmp_path):
     r = make(tmp_path)
     register(r, did=PID, kind="phone")
@@ -368,7 +387,7 @@ def test_a_paused_job_answers_at_once_but_holds_wait(tmp_path):
         return paused, took, await waiting
 
     paused, took, waiting = asyncio.run(go())
-    assert paused["code"] == "paused" and "the job goes on when he taps Resume" in paused["text"]
+    assert paused["code"] == "paused" and "the job goes on when the device holder taps Resume" in paused["text"]
     assert took["type"] == "cmd" and took["cmd"]["verb"] == "wait"
     assert waiting["ok"] and waiting["text"] == "done"
 
@@ -626,7 +645,7 @@ def test_a_turn_user_never_takes_ends_the_job(tmp_path):
         return jid, mid
     jid, mid = asyncio.run(go())
     assert mid == "running", "a turn is never a stall"
-    assert r.jobs[jid]["outcome"] == "expired" and "his turn" in r.jobs[jid]["detail"]
+    assert r.jobs[jid]["outcome"] == "expired" and "a turn" in r.jobs[jid]["detail"]
 
 
 def test_an_ended_job_is_forgotten_even_if_the_device_never_heard(tmp_path):
