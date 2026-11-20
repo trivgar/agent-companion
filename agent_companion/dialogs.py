@@ -39,6 +39,10 @@ def parse(screen: str) -> dict | None:
     last = next((i for i in range(tail - 1, max(-1, tail - 7), -1) if _OPTION.match(lines[i])), None)
     if last is None:
         return None
+    # A draft box below a numbered list means the list is conversation text,
+    # not a dialog. A terminal dialog never draws an input box below itself.
+    if any(_RULE.match(line) or re.match(r"^\s*❯", line) for line in lines[last + 1:tail]):
+        return None
     # Walk up through the run: n, n-1, ... 1, past descriptions and the rule
     # that splits off terminal-only choices.
     opts, want, i, first = [], None, last, None

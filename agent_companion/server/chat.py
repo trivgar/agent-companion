@@ -39,7 +39,7 @@ from pathlib import Path
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from agent_companion import codex_sessions
+from agent_companion import codex_sessions, dialogs
 
 from .. import activity, addons, changes, config, ring, tasks
 from ..messages import _folder
@@ -338,12 +338,12 @@ def target_waiting(target: dict) -> bool:
 
 def _dialog_open(screen: str, header: str, yes: re.Pattern) -> bool:
     """The dialog is drawn now, at the bottom of the pane: its header in the
-    last lines, its selected Yes within the few lines under it, and no empty
+    last lines, its selected Yes up to eight lines under it, and no empty
     input box after it (the box is not drawn while a dialog is up). The same
     words quoted higher up, in the conversation, never count."""
     lines = [ln for ln in screen.splitlines() if ln.strip()][-12:]
     for i, ln in enumerate(lines):
-        if header in ln and any(yes.search(x) for x in lines[i + 1:i + 6]):
+        if header in ln and any(yes.search(x) for x in lines[i + 1:i + 9]):
             return not any(re.fullmatch(r"\s*❯\s*", x) for x in lines[i + 1:])
     return False
 
@@ -370,14 +370,24 @@ def _confirm_dialog(target: dict, header: str, yes: re.Pattern, run, sleep, trie
     return False
 
 
+def _switch_dialog(words: str) -> tuple[str, re.Pattern] | None:
+    """The confirm dialog a direct-chat model or effort picker can raise."""
+    text = str(words).strip()
+    match = EFFORT_SENT.fullmatch(text)
+    if match:
+        return "Change effort level?", re.compile(r"❯\s*1\.\s*Yes, switch to " + match.group(1) + r"\s*$", re.M)
+    if MODEL_SENT.fullmatch(text):
+        return "Switch model?", re.compile(r"❯\s*1\.\s*Yes, switch to \S.*$", re.M)
+    return None
+
+
 def confirm_effort(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
                    tries: int = 12, every: float = .25) -> bool:
     """Confirm only the effort dialog raised by this exact direct-chat send."""
-    match = EFFORT_SENT.fullmatch(str(text).strip())
-    if not match:
+    switch = _switch_dialog(text)
+    if not switch or switch[0] != "Change effort level?":
         return False
-    yes = re.compile(r"❯\s*1\.\s*Yes, switch to " + match.group(1) + r"\s*$", re.M)
-    return _confirm_dialog(target, "Change effort level?", yes, run, sleep, tries, every)
+    return _confirm_dialog(target, *switch, run, sleep, tries, every)
 
 
 def confirm_model(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
@@ -386,10 +396,10 @@ def confirm_model(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
     raises (the cache warning). The dialog names the model by its display
     name, not the id that was sent, so it is matched by its header and its
     selected Yes line, within the few seconds after this send."""
-    if not MODEL_SENT.fullmatch(str(text).strip()):
+    switch = _switch_dialog(text)
+    if not switch or switch[0] != "Switch model?":
         return False
-    yes = re.compile(r"❯\s*1\.\s*Yes, switch to \S.*$", re.M)
-    return _confirm_dialog(target, "Switch model?", yes, run, sleep, tries, every)
+    return _confirm_dialog(target, *switch, run, sleep, tries, every)
 
 
 LEFTOVER_S = 900              # a send not confirmed this recently may still sit in its box
@@ -474,7 +484,10 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
     # after a stuck "Yes" and none could be confirmed). Our own unconfirmed
     # words are cleared, with Ctrl-C, only while the session is idle: at a
     # working session Ctrl-C interrupts its turn. Anything else is refused.
-    _, before = _box_now(target["pane"], run)
+    screen, before = _box_now(target["pane"], run)
+    plain = "\n".join("".join(ch for ch, _ in _screen_chars(row)) for row in screen.splitlines())
+    if dialogs.parse(plain):
+        return False, f"{target['name']} is showing a choice in its terminal; answer that first"
     # The words of this very message already sit there from a send that typed
     # them but never saw them in time: press Enter on them, idle or working.
     retyped = bool(before and before.strip()) and "".join(before.split()) == "".join(line.split()) \
@@ -522,6 +535,7 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
         # as the real one does.
         retry_every = max(1, round(ENTER_RETRY_EVERY_S / max(check_s, 0.001)))
         retries, since_enter = 0, 0
+        switch = _switch_dialog(line)
         for _ in range(_input_polls(clear_wait_s, check_s)):
             remaining = clear_deadline - time.monotonic()
             if remaining <= 0:
@@ -531,6 +545,11 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
             seen = _still_in_box(target["pane"], line, run, timeout)
             if seen is False:
                 return True, ""
+            if switch and seen is not False:
+                screen, _ = _box_now(target["pane"], run, timeout)
+                plain = "\n".join("".join(ch for ch, _ in _screen_chars(row)) for row in screen.splitlines())
+                if _dialog_open(plain, *switch):
+                    return True, ""
             if target_waiting(target):
                 return not_confirmed("it opened a dialog before the send could be confirmed")
             since_enter += 1
@@ -1142,12 +1161,13 @@ def _chat_payload(name: str) -> dict:
     mine = asks.for_agent(pending, rows, target["pid"]) if rows else [
         ask for ask in pending if ask.get("speaker", "").lower() == target["name"].lower()]
     transcript = transcript_path(target, claude_home() / "projects")
-    # A terminal choice that no hook reported belongs in this window only when
-    # it has no hook-backed ask of its own and is not mid-turn.
+    # A terminal choice that no hook reported belongs in this window when it
+    # has no hook-backed ask of its own. A model or effort pick made mid-turn
+    # can raise its dialog while busy; the no-input-box parser rule keeps a
+    # numbered list in the conversation from reading as that dialog.
     dialog = None
-    if not mine and target.get("status") != "busy":
+    if not mine:
         try:
-            from agent_companion import dialogs
             dialog = dialogs.read(target)
         except Exception:
             dialog = None
