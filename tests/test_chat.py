@@ -58,6 +58,31 @@ class Run:
 
 _RULE = "\x1b[38;5;244m" + "─" * 40 + "\x1b[39m"
 
+SWITCH_MID_TURN = f"""✽ Generating… (8s · ↓ 419 tokens)
+{"▔" * 80}
+  Switch model?
+  Your next response will be slower and use more tokens
+
+  This conversation is cached for the current model. Switching to Fable 5.2
+  means the full history gets re-read.
+
+  ❯ 1. Yes, switch to Fable 5.2
+    2. No, go back
+
+  Enter to confirm · Esc to cancel
+"""
+
+EFFORT_MID_TURN = f"""✽ Generating… (8s · ↓ 419 tokens)
+{"▔" * 80}
+  Change effort level?
+  Your next response will use more tokens
+
+  ❯ 1. Yes, switch to max
+    2. No, go back
+
+  Enter to confirm · Esc to cancel
+"""
+
 
 def _box(*rows):
     return "\n".join(["x", _RULE, "\x1b[39m❯ " + rows[0], *rows[1:], _RULE, "  status line"])
@@ -141,6 +166,23 @@ class Screen(Run):
         return R()
 
 
+class SwitchScreen(Screen):
+    """An empty box, then typed words, then a confirm dialog after Enter."""
+
+    def __init__(self, words, dialog):
+        super().__init__([words], [None])
+        self.dialog = dialog
+
+    def __call__(self, args, **kw):
+        if "capture-pane" in args and any(call[-1] == "Enter" for call in self.calls if "send-keys" in call):
+            self.calls.append(args)
+
+            class Result:
+                stdout = self.dialog
+            return Result()
+        return super().__call__(args, **kw)
+
+
 def test_send_confirms_words_show_then_clear(monkeypatch):
     monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
     run = Screen(before=[("two board", " posts")], after=[""])
@@ -166,6 +208,30 @@ def test_send_is_not_confirmed_when_box_is_unparseable_after_enter(monkeypatch):
                         appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
     assert not ok and why.startswith("typed, not confirmed")
     assert sum(c[-1] == "Enter" for c in run.calls if "send-keys" in c) == 1
+
+
+@pytest.mark.parametrize(("words", "dialog"), [
+    ("/model claude-fable-5-2", SWITCH_MID_TURN),
+    ("/effort max", EFFORT_MID_TURN),
+])
+def test_a_model_or_effort_pick_counts_as_sent_when_its_confirm_dialog_opens(monkeypatch, words, dialog):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    run = SwitchScreen(words, dialog)
+    assert chat.send(KNOWN["ada"], words, run=run, sleep=lambda s: None,
+                     appear_wait_s=.01, clear_wait_s=.01, check_s=.01) == (True, "")
+
+
+@pytest.mark.parametrize(("words", "dialog"), [
+    ("two board posts", SWITCH_MID_TURN),          # a plain message: no dialog is its own
+    ("/effort max", SWITCH_MID_TURN),              # an effort pick under the model dialog
+    ("/model claude-fable-5-2", EFFORT_MID_TURN),  # a model pick under the effort dialog
+])
+def test_only_a_picks_own_confirm_dialog_counts_as_sent(monkeypatch, words, dialog):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    run = SwitchScreen(words, dialog)
+    ok, why = chat.send(KNOWN["ada"], words, run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and why.startswith("typed, not confirmed")
 
 
 def test_send_is_not_confirmed_when_words_remain_after_enter(monkeypatch):
@@ -201,6 +267,25 @@ def test_nothing_is_typed_into_a_prompt_or_a_dialog():
         run = Run()
         ok, why = chat.send(t, "push it", run=run)
         assert not ok and "waiting on your answer" in why and not any("send-keys" in c for c in run.calls)
+
+
+def test_nothing_is_typed_into_a_terminal_dialog_that_no_hook_reported(monkeypatch):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+
+    class Dialog(Run):
+        def __call__(self, args, **kw):
+            if "capture-pane" in args:
+                self.calls.append(args)
+
+                class Result:
+                    stdout = SWITCH_MID_TURN
+                return Result()
+            return super().__call__(args, **kw)
+
+    run = Dialog()
+    assert chat.send(KNOWN["ada"], "/effort max", run=run) == (
+        False, "Ada is showing a choice in its terminal; answer that first")
+    assert not any("send-keys" in call for call in run.calls)
 
 
 def test_stop_is_escape_into_its_own_window_only(monkeypatch):
@@ -362,15 +447,15 @@ def test_a_window_carries_that_sessions_pending_asks(client, tmp_path):
 def test_a_window_surfaces_an_unreported_terminal_dialog_and_marks_it_waiting(client, monkeypatch):
     from agent_companion import dialogs
 
-    terminal = {"key": "current", "question": "Continue?", "options": [], "multi": False, "cut": False}
+    terminal = dialogs.parse(SWITCH_MID_TURN)
     seen = []
     monkeypatch.setattr(dialogs, "read", lambda target: seen.append(target["name"]) or terminal)
     window = client.get("/api/chat/window/Ada", headers=KEY).json()
     assert window["dialog"] == terminal and window["waiting"] is True and seen == ["Ada"]
     busy = dict(KNOWN["ada"], status="busy")
     monkeypatch.setattr(chat, "known", lambda: {"ada": busy})
-    assert client.get("/api/chat/window/Ada", headers=KEY).json()["dialog"] is None
-    assert seen == ["Ada"]
+    window = client.get("/api/chat/window/Ada", headers=KEY).json()
+    assert window["dialog"] == terminal and window["waiting"] is True and seen == ["Ada", "Ada"]
 
 
 def test_transcript_path_names_the_folder_like_claude_code(tmp_path):

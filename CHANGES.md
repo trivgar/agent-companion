@@ -3,6 +3,10 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## Unreleased
+- Chat: a choice drawn in a session's terminal mid-turn (such as "Switch model?"
+  after a model pick) now shows in its chat window; a model or effort pick
+  confirms its own dialog again; and nothing is typed into a session while such
+  a choice is up.
 - Phone driver: the words a job uses can name your own setup. `phone_app_name`
   (default `agent-companion`), `phone_holder` (default `the device holder`),
   `phone_avd` (default `agent-companion-test`) and `phone_token_header` (default

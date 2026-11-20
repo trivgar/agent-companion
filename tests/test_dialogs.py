@@ -53,6 +53,20 @@ SWITCH = f"""✻ Work completed
      2. No, go back
 """
 
+SWITCH_MID_TURN = f"""✽ Generating… (8s · ↓ 419 tokens)
+{"▔" * 80}
+  Switch model?
+  Your next response will be slower and use more tokens
+
+  This conversation is cached for the current model. Switching to Fable 5.2
+  means the full history gets re-read.
+
+  ❯ 1. Yes, switch to Fable 5.2
+    2. No, go back
+
+  Enter to confirm · Esc to cancel
+"""
+
 # A short pane whose command begins above the visible region.
 PERMISSION_CUT = f""" │ an account identifier may leave this machine.
 {"╌" * 80}
@@ -108,6 +122,14 @@ def test_a_model_switch_dialog_has_no_footer_and_still_reads():
     assert dialogs.answerable(dialog, 1)
 
 
+def test_a_model_switch_drawn_mid_turn_reads_as_a_confirm_dialog():
+    dialog = dialogs.parse(SWITCH_MID_TURN)
+    assert dialog["question"].startswith("Switch model?")
+    assert [option["n"] for option in dialog["options"]] == [1, 2]
+    assert dialog["options"][0]["selected"]
+    assert not dialog["cut"] and dialog["confirm"] and dialogs.answerable(dialog, 1)
+
+
 def test_a_permission_cut_off_at_the_top_never_gets_a_blind_yes():
     dialog = dialogs.parse(PERMISSION_CUT)
     assert "Do you want to proceed?" in dialog["question"] and "account identifier" in dialog["question"]
@@ -121,6 +143,24 @@ def test_an_idle_prompt_or_a_quoted_dialog_is_not_a_dialog():
     assert dialogs.parse(IDLE) is None
     assert dialogs.parse(QUOTED) is None
     assert dialogs.parse("") is None
+
+
+def test_a_numbered_list_above_a_draft_box_is_not_a_dialog():
+    above_box = f"""  1. First idea
+  2. Second idea
+{RULE}
+❯ a draft not sent yet
+{RULE}
+  status line
+"""
+    beside_box = f"""  1. First idea
+  2. Second idea
+❯ a draft not sent yet
+{RULE}
+  status line
+"""
+    assert dialogs.parse(above_box) is None
+    assert dialogs.parse(beside_box) is None
 
 
 class Pane:
