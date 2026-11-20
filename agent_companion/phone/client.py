@@ -17,6 +17,7 @@ import urllib.request
 from pathlib import Path
 
 from .. import config
+from . import settings
 
 def default_base() -> str:
     return str(os.environ.get("AGENT_COMPANION_URL") or config.get("url")
@@ -97,7 +98,7 @@ class Client:
              headers: dict[str, str] | None = None) -> dict:
         data = None if body is None else json.dumps(body).encode()
         req = urllib.request.Request(self.base + path, data=data, method=method)
-        req.add_header("x-agent-companion-token", self.token)
+        req.add_header(settings.token_header(), self.token)
         if data is not None:
             req.add_header("Content-Type", "application/json")
         if self.key:
@@ -115,9 +116,10 @@ class Client:
             return {"ok": False, "code": f"http_{e.code}", "text": str(detail or e.reason)}
         except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
             return {"ok": False, "code": "unreachable",
-                    "text": f"agent-companion did not answer ({type(e).__name__}): is agent-companion running?"}
+                    "text": f"{settings.app_name()} did not answer ({type(e).__name__}): "
+                            f"is {settings.app_name()} running?"}
         except ValueError:
-            return {"ok": False, "code": "bad_reply", "text": "agent-companion's answer was not JSON"}
+            return {"ok": False, "code": "bad_reply", "text": f"{settings.app_name()}'s answer was not JSON"}
 
     def start(self, device: str, task: str, agent: str) -> dict:
         got = self.call("POST", "/api/phone/jobs", {"device": device, "task": task, "agent": agent})
@@ -145,7 +147,7 @@ class Client:
             self.wait(5)
             got = self.call("POST", f"/api/phone/jobs/{job_id}/cmd", body, headers=headers)
             if got.get("code") == "unreachable":
-                got["text"] = "agent-companion went away mid-command (a restart?): look again before acting"
+                got["text"] = f"{settings.app_name()} went away mid-command (a restart?): look again before acting"
         return got
 
     def end(self, job_id: str, cap: str | None = None) -> dict:

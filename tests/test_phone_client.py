@@ -34,6 +34,13 @@ def test_it_sends_the_token_and_json_and_a_key_only_when_given():
     assert o2.reqs[0].get_header("X-phone-agent-key") == "k" * 40
 
 
+def test_it_sends_the_token_under_the_configured_header(monkeypatch):
+    monkeypatch.setenv("AGENT_COMPANION_PHONE_TOKEN_HEADER", "  x-homebase-token  ")
+    o = Opener([{"ok": True}])
+    PC.Client(base="http://x", token="tok", opener=o).jobs()
+    assert o.reqs[0].get_header("X-homebase-token") == "tok"
+
+
 def test_a_command_that_loses_the_server_is_asked_once_more_with_the_same_id():
     o = Opener([urllib.error.URLError("refused"), {"ok": True, "text": "Home"}])
     slept = []
