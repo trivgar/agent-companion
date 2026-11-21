@@ -75,6 +75,8 @@ _HEIF_BRANDS = {b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"hevm", b
 FILE_ID = re.compile(r"^[0-9]{8}-[0-9a-f]{12}(\.[a-z0-9]{1,5})$")
 EFFORT_SENT = re.compile(r"/effort (low|medium|high|xhigh|max)")
 MODEL_SENT = re.compile(r"/model [A-Za-z0-9][\w.\[\]-]{0,80}")
+PASTE_PLACEHOLDER = re.compile(r"\[Pasted text #\d+(?: \+\d+ lines)?\]")
+PASTE_MIN_CHARS = 400         # only long input is folded into a placeholder; shorter words of ours never are
 _SUGGESTION_CACHE: dict[str, tuple[float, str | None]] = {}
 _SUGGESTION_CACHE_SECONDS = 5
 _CLEARED: dict[str, tuple] = {}
@@ -317,6 +319,11 @@ def _still_in_box(pane: str, line: str, run, timeout: float = 5) -> bool | None:
     return bool(tail and tail in "".join(box.split()))
 
 
+def _is_paste_placeholder(box: str) -> bool:
+    """Whether a box holds only the placeholder for our pasted text."""
+    return bool(PASTE_PLACEHOLDER.fullmatch(str(box).strip()))
+
+
 def _input_polls(wait_s: float, check_s: float) -> int:
     """A finite number of pane captures for one input-box confirmation."""
     return max(1, math.ceil(max(0.0, wait_s) / max(check_s, 0.001)))
@@ -405,6 +412,23 @@ def confirm_model(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
 LEFTOVER_S = 900              # a send not confirmed this recently may still sit in its box
 
 
+def _recent_unconfirmed(name: str) -> dict | None:
+    """The latest recent send for this target, if it could not be confirmed."""
+    cutoff = time.time() - LEFTOVER_S
+    for entry in reversed(sent(limit=200)):
+        if str(entry.get("to") or "").lower() != name.lower():
+            continue
+        try:
+            recent = float(entry.get("at") or 0) >= cutoff
+        except (TypeError, ValueError):
+            recent = False
+        if (not entry.get("ok") and str(entry.get("detail") or "").startswith("typed, not confirmed")
+                and recent):
+            return entry
+        return None
+    return None
+
+
 def _ours(box: str, name: str) -> bool:
     """Whether everything in the box is words this page typed for `name` in
     the last LEFTOVER_S that were never confirmed sent (2026-11-18: a stuck
@@ -488,13 +512,23 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
     plain = "\n".join("".join(ch for ch, _ in _screen_chars(row)) for row in screen.splitlines())
     if dialogs.parse(plain):
         return False, f"{target['name']} is showing a choice in its terminal; answer that first"
+    empty_before_typing = before is not None and not before.strip()
+    was_paste = bool(before and _is_paste_placeholder(before))
+    recent = _recent_unconfirmed(target["name"]) if was_paste else None
+    if recent and len(" ".join(str(recent.get("text") or "").split())) < PASTE_MIN_CHARS:
+        recent = None         # words that short were never folded: this paste is not from here
     # The words of this very message already sit there from a send that typed
     # them but never saw them in time: press Enter on them, idle or working.
-    retyped = bool(before and before.strip()) and "".join(before.split()) == "".join(line.split()) \
-        and _ours(before, target["name"])
+    retyped = (bool(before and before.strip()) and "".join(before.split()) == "".join(line.split())
+               and _ours(before, target["name"]))
+    if was_paste and recent:
+        retyped = "".join(str(recent.get("text") or "").split()) == "".join(line.split())
+    ours = _ours(before, target["name"])
+    if was_paste and recent:
+        ours = True
     if before and before.strip() and not retyped:
         shown = " ".join(before.split())[:80]
-        if target.get("status") != "idle" or not _ours(before, target["name"]):
+        if target.get("status") != "idle" or not ours:
             return False, (f"{target['name']}'s input box already holds words not sent from here "
                            f"(\"{shown}\"); not typed over them")
         try:
@@ -505,6 +539,7 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
         _, after = _box_now(target["pane"], run)
         if after is None or after.strip():
             return False, f"{target['name']}'s input box still holds earlier unsent words (\"{shown}\")"
+        empty_before_typing = True
 
     try:
         if not retyped:
@@ -513,6 +548,7 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
         # Do not press Enter until the terminal has redrawn the words we sent.
         # A stalled or unreadable pane is not evidence that its input is clear.
         appeared = retyped
+        pasted = was_paste and retyped
         appear_deadline = time.monotonic() + max(0.0, appear_wait_s)
         for _ in range(0 if appeared else _input_polls(appear_wait_s, check_s)):
             remaining = appear_deadline - time.monotonic()
@@ -524,6 +560,10 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
             timeout = min(5, max(.001, appear_deadline - time.monotonic()))
             if _still_in_box(target["pane"], line, run, timeout) is True:
                 appeared = True
+                break
+            _, box = _box_now(target["pane"], run, timeout)
+            if empty_before_typing and box is not None and _is_paste_placeholder(box):
+                appeared, pasted = True, True
                 break
         if not appeared:
             return not_confirmed("the input box never showed the typed words; Enter was not pressed")
@@ -543,7 +583,15 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
             sleep(min(check_s, remaining))
             timeout = min(5, max(.001, clear_deadline - time.monotonic()))
             seen = _still_in_box(target["pane"], line, run, timeout)
-            if seen is False:
+            paste_still_shown = False
+            if pasted and seen is not None:
+                _, box = _box_now(target["pane"], run, timeout)
+                if box is not None:
+                    if not PASTE_PLACEHOLDER.search(box):
+                        return True, ""
+                    # Enter again only on the paste alone: beside other words it would send those too.
+                    paste_still_shown = _is_paste_placeholder(box)
+            if not pasted and seen is False:
                 return True, ""
             if switch and seen is not False:
                 screen, _ = _box_now(target["pane"], run, timeout)
@@ -553,7 +601,7 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
             if target_waiting(target):
                 return not_confirmed("it opened a dialog before the send could be confirmed")
             since_enter += 1
-            if seen is True and retries < ENTER_RETRIES and since_enter >= retry_every:
+            if (paste_still_shown if pasted else seen is True) and retries < ENTER_RETRIES and since_enter >= retry_every:
                 run(["tmux", "send-keys", "-t", target["pane"], "Enter"], check=True, timeout=5)
                 retries, since_enter = retries + 1, 0
     except (OSError, subprocess.SubprocessError) as exc:

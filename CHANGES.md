@@ -3,6 +3,8 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## Unreleased
+- Chat: a long message that the terminal folds into a pasted-text placeholder
+  is now sent, and a retry sends the one left in the box instead of being refused.
 - Chat: a choice drawn in a session's terminal mid-turn (such as "Switch model?"
   after a model pick) now shows in its chat window; a model or effort pick
   confirms its own dialog again; and nothing is typed into a session while such

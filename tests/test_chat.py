@@ -480,6 +480,133 @@ def _failed(tmp_path, monkeypatch, *texts, to="Ada", age=60):
     return log
 
 
+LONG = " ".join(["message"] * 250)      # long enough for the terminal to fold into a placeholder
+
+
+def test_send_confirms_long_message_as_pasted_text(monkeypatch):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    line = LONG
+    run = Screen(before=["[Pasted text #1]"], after=[""])
+    ok, why = chat.send(KNOWN["ada"], line, run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert ok, why
+    assert [c[-1] for c in run.calls if "send-keys" in c] == [line, "Enter"]
+
+
+def test_send_confirms_pasted_text_with_line_count(monkeypatch):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    run = Screen(before=["[Pasted text #2 +9 lines]"], after=[""])
+    ok, why = chat.send(KNOWN["ada"], "send the full report", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert ok, why
+    assert [c[-1] for c in run.calls if "send-keys" in c] == ["send the full report", "Enter"]
+
+
+def test_send_retries_enter_while_pasted_text_placeholder_remains(monkeypatch):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    monkeypatch.setattr(chat, "ENTER_RETRY_EVERY_S", 0)
+    run = Screen(before=["[Pasted text #1]"], after=["[Pasted text #1]"])
+    ok, why = chat.send(KNOWN["ada"], "send the full report", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.05, check_s=.01)
+    enters = sum(c[-1] == "Enter" for c in run.calls if "send-keys" in c)
+    assert not ok and why.startswith("typed, not confirmed")
+    assert 1 <= enters <= 1 + chat.ENTER_RETRIES
+
+
+def test_send_refuses_an_unclaimed_pasted_text_placeholder(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch)
+    run = Screen(before=["ignored"], after=[""], start="[Pasted text #1]")
+    ok, why = chat.send(KNOWN["ada"], "send the full report", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and "already holds words not sent from here" in why
+    assert not [c for c in run.calls if "send-keys" in c]
+
+
+def test_send_enters_our_pasted_text_placeholder_even_when_busy(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch, LONG)
+    run = Screen(before=["ignored"], after=[""], start="[Pasted text #1]")
+    ok, why = chat.send(KNOWN["ada"] | {"status": "busy"}, LONG, run=run,
+                        sleep=lambda s: None, appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert ok, why
+    assert [c[-1] for c in run.calls if "send-keys" in c] == ["Enter"]
+
+
+def test_send_clears_our_other_pasted_text_placeholder_before_typing(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch, "an earlier report " + LONG)
+    line = "send the full report"
+    run = Screen(before=[line], after=[""], start="[Pasted text #1]", cleared="")
+    ok, why = chat.send(KNOWN["ada"] | {"status": "idle"}, line, run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert ok, why
+    assert [c[-1] for c in run.calls if "send-keys" in c] == ["C-c", line, "Enter"]
+
+
+def test_send_refuses_our_other_pasted_text_placeholder_when_busy(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch, "an earlier report " + LONG)
+    run = Screen(before=["ignored"], after=[""], start="[Pasted text #1]")
+    ok, why = chat.send(KNOWN["ada"] | {"status": "busy"}, "send the full report", run=run,
+                        sleep=lambda s: None, appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and "already holds words not sent from here" in why
+    assert not [c for c in run.calls if "send-keys" in c]
+
+
+def test_old_failures_do_not_make_a_pasted_text_placeholder_ours(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch, LONG, age=chat.LEFTOVER_S + 1)
+    run = Screen(before=["ignored"], after=[""], start="[Pasted text #1]")
+    ok, why = chat.send(KNOWN["ada"], LONG, run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and "already holds words not sent from here" in why
+    assert not [c for c in run.calls if "send-keys" in c]
+
+
+def test_a_short_unconfirmed_send_does_not_own_a_pasted_text_placeholder(monkeypatch, tmp_path):
+    """Short words are never folded, so a paste in the box after them came from someone else."""
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch, "push it")
+    run = Screen(before=["ignored"], after=[""], start="[Pasted text #1]")
+    ok, why = chat.send(KNOWN["ada"] | {"status": "idle"}, "push it", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and "already holds words not sent from here" in why
+    assert not [c for c in run.calls if "send-keys" in c]
+
+
+def test_send_is_not_confirmed_and_not_entered_again_beside_other_words(monkeypatch):
+    """After Enter the paste still shows, now with words typed beside it: a second
+    Enter would send those too."""
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    monkeypatch.setattr(chat, "ENTER_RETRY_EVERY_S", 0)
+    run = Screen(before=["[Pasted text #1]"], after=["[Pasted text #1] and more"])
+    ok, why = chat.send(KNOWN["ada"], LONG, run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.05, check_s=.01)
+    assert not ok and why.startswith("typed, not confirmed")
+    assert sum(c[-1] == "Enter" for c in run.calls if "send-keys" in c) == 1
+
+
+def test_send_refuses_an_image_placeholder(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch)
+    run = Screen(before=["ignored"], after=[""], start="[Image #1]")
+    ok, why = chat.send(KNOWN["ada"], "send the full report", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and "already holds words not sent from here" in why
+    assert not [c for c in run.calls if "send-keys" in c]
+
+
+def test_send_refuses_pasted_text_placeholder_with_other_words(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch)
+    run = Screen(before=["ignored"], after=[""], start="[Pasted text #1] and more")
+    ok, why = chat.send(KNOWN["ada"], "send the full report", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and "already holds words not sent from here" in why
+    assert not [c for c in run.calls if "send-keys" in c]
+
+
 def test_send_never_types_onto_words_it_did_not_put_there(monkeypatch, tmp_path):
     """2026-11-18: a stuck word sat in the box and every retry was typed after
     it. Words in the box that this page did not type are someone's: refuse."""
