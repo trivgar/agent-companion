@@ -3,6 +3,9 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## Unreleased
+- Chat: cut-off input boxes get more room in detached windows, preventing
+  retries from piling up; lone digits and AZERTY digit keys reach the session
+  without being taken by a card.
 - Chat: a long message that the terminal folds into a pasted-text placeholder
   is now sent, and a retry sends the one left in the box instead of being refused.
 - Chat: a choice drawn in a session's terminal mid-turn (such as "Switch model?"
