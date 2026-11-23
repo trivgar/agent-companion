@@ -33,6 +33,7 @@ import secrets
 import subprocess
 import threading
 import time
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -61,6 +62,7 @@ INPUT_CLEAR_WAIT_S = 5.0
 ENTER_RETRIES = 2
 ENTER_RETRY_EVERY_S = 1.0
 INPUT_CHECK_S = 0.1
+ROOM_ROWS = 50
 MAX_UPLOAD = 20 * 1024 * 1024
 MAX_UPLOAD_ENCODED = (MAX_UPLOAD * 4 + 2) // 3 + 4 * 1024
 KEEP_UPLOADS_S = 30 * 86400
@@ -271,7 +273,7 @@ def suggestion(target: dict, run=subprocess.run, now=time.time, fresh: bool = Fa
 
 def parse_input(screen: str) -> str | None:
     """What sits typed in Claude Code's input box (dim guesses left out), or
-    None when no box shows. The box is the lines from the prompt line to the
+    None when no whole box shows. The box is the lines from the prompt line to the
     rule under it."""
     lines = str(screen or "").splitlines()
     plain = ["".join(ch for ch, _ in _screen_chars(x)) for x in lines]
@@ -298,6 +300,18 @@ def parse_input(screen: str) -> str | None:
             out.append("".join(ch for ch, dim in chars if not dim))
         return None
     return None
+
+
+def input_cut_off(screen: str) -> bool:
+    """An input box starts on screen but its bottom rule is below the window."""
+    if parse_input(screen) is not None:
+        return False
+    plain = ["".join(ch for ch, _ in _screen_chars(row)) for row in str(screen or "").splitlines()]
+    for above, line in zip(plain, plain[1:]):
+        top = above.strip()
+        if top.startswith("──") and (line.startswith("❯") or ("↑" in top and "more" in top)):
+            return True
+    return False
 
 
 def _still_in_box(pane: str, line: str, run, timeout: float = 5) -> bool | None:
@@ -457,6 +471,23 @@ def _box_now(pane: str, run, timeout: float = 5) -> tuple[str, str | None]:
     return screen, parse_input(screen)
 
 
+def _make_room(target: dict, run) -> bool:
+    """Give a cut-off box more rows, only when nobody is looking at its window."""
+    try:
+        out = run(["tmux", "display-message", "-p", "-t", target["pane"],
+                   "#{session_attached} #{window_height}"],
+                  capture_output=True, text=True, check=True, timeout=5)
+        attached, rows = map(int, (out.stdout or "").split())
+        if attached != 0 or not 0 < rows < ROOM_ROWS:
+            return False
+        run(["tmux", "resize-window", "-t", target["pane"], "-y", str(ROOM_ROWS)], check=True, timeout=5)
+        # resize-window pins the size; let a client that attaches later set it.
+        run(["tmux", "set-window-option", "-t", target["pane"], "-u", "window-size"], check=True, timeout=5)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+    return True
+
+
 def _keep_screen(target: dict, detail: str, run) -> None:
     """A send that could not be confirmed keeps the screen it saw, so the next
     stuck Enter can be read instead of guessed at (send-failures.jsonl, 600)."""
@@ -509,6 +540,22 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
     # words are cleared, with Ctrl-C, only while the session is idle: at a
     # working session Ctrl-C interrupts its turn. Anything else is refused.
     screen, before = _box_now(target["pane"], run)
+    room_tried = False
+    if before is None and input_cut_off(screen):
+        room_tried = True
+        if _make_room(target, run):
+            room_deadline = time.monotonic() + 1.0
+            for _ in range(_input_polls(1.0, check_s)):
+                remaining = room_deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                sleep(min(check_s, remaining))
+                timeout = min(5, max(.001, room_deadline - time.monotonic()))
+                screen, before = _box_now(target["pane"], run, timeout)
+                if before is not None:
+                    break
+        if before is None and input_cut_off(screen):
+            return False, f"{target['name']}'s input box is cut off by the bottom of its window; not typed"
     plain = "\n".join("".join(ch for ch, _ in _screen_chars(row)) for row in screen.splitlines())
     if dialogs.parse(plain):
         return False, f"{target['name']} is showing a choice in its terminal; answer that first"
@@ -543,7 +590,11 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
 
     try:
         if not retyped:
-            run(["tmux", "send-keys", "-t", target["pane"], "-l", "--", line], check=True, timeout=5)
+            # Cards take a lone digit, including AZERTY's top row. A leading
+            # space keeps the box from ever holding that character alone.
+            normal = unicodedata.normalize("NFKC", line)
+            literal = " " + line if len(normal) == 1 and normal in "0123456789&é\"'(-§è_çà" else line
+            run(["tmux", "send-keys", "-t", target["pane"], "-l", "--", literal], check=True, timeout=5)
         typed = True
         # Do not press Enter until the terminal has redrawn the words we sent.
         # A stalled or unreadable pane is not evidence that its input is clear.
@@ -561,11 +612,16 @@ def send(target: dict, text: str, run=subprocess.run, sleep=time.sleep,
             if _still_in_box(target["pane"], line, run, timeout) is True:
                 appeared = True
                 break
-            _, box = _box_now(target["pane"], run, timeout)
+            screen, box = _box_now(target["pane"], run, timeout)
             if empty_before_typing and box is not None and _is_paste_placeholder(box):
                 appeared, pasted = True, True
                 break
+            if box is None and input_cut_off(screen) and not room_tried:
+                room_tried = True
+                _make_room(target, run)
         if not appeared:
+            if input_cut_off(screen):
+                return not_confirmed("the input box is cut off by the bottom of its window; Enter was not pressed")
             return not_confirmed("the input box never showed the typed words; Enter was not pressed")
         run(["tmux", "send-keys", "-t", target["pane"], "Enter"], check=True, timeout=5)
         # Success needs both halves of the observation: it appeared before

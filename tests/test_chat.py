@@ -1,6 +1,7 @@
 """Chat (agent_companion/server/chat.py): the owner directs sessions from the
 page. Nothing here touches tmux: every run is a fake."""
 import json
+import subprocess
 import time
 
 import pytest
@@ -115,6 +116,34 @@ def test_parse_input_reads_a_box_that_has_scrolled():
     assert box is not None and "work through it" in box and box.endswith("/clearRKeep")
 
 
+_CUT_OFF = """✻ Worked for 12s
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ ✻ Bug report drafted: an example title                                       │
+│ │ - What happened: an example detail line                                    │
+│ clear text to review, send, or dismiss                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+                                        ✔ Update installed · Restart to update
+────────────────────────────────────────────────────────────────────────────────
+❯ An example message long enough to wrap onto a second line of the input box
+  and then onto a third line, which is the last line the window can show
+  the end"""
+
+
+@pytest.mark.parametrize(("screen", "cut_off"), [
+    (_CUT_OFF, True),
+    (_CUT_OFF + "\n" + _RULE + "\n  status line", False),
+    ("no prompt line\n" + _RULE + "\n  status line", False),
+    ("\n".join(["x", "─── ↑ 1 more ───", "  the end"]), True),
+    ("\n".join(["x", "─── ↑ 1 more ───", "  the end", _RULE]), False),
+], ids=["cut-off", "whole", "no-box", "scrolled-cut-off", "scrolled-whole"])
+def test_input_cut_off_distinguishes_an_incomplete_box(screen, cut_off):
+    assert chat.input_cut_off(screen) is cut_off
+    if cut_off:
+        assert chat.parse_input(screen) is None
+
+
 def test_send_never_types_onto_a_scrolled_box(monkeypatch, tmp_path):
     monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
     _failed(tmp_path, monkeypatch)
@@ -164,6 +193,158 @@ class Screen(Run):
         class R:
             stdout = "no input box" if value is None else _box(*(value if isinstance(value, tuple) else (value,)))
         return R()
+
+
+class CutOffScreen(Screen):
+    """The bottom rule is missing until a detached window has more room."""
+    def __init__(self, before, after, start="", window="0 24", refuse=False,
+                 only_after_typing=False, redraws=0, stays_cut_off=False):
+        super().__init__(before, after, start=start)
+        self.window, self.refuse = window, refuse
+        self.only_after_typing, self.redraws = only_after_typing, redraws
+        self.stays_cut_off, self.resized = stays_cut_off, False
+
+    def __call__(self, args, **kw):
+        result = super().__call__(args, **kw)
+        if "display-message" in args and args[-1] == "#{session_attached} #{window_height}":
+            result.stdout = self.window
+        if "resize-window" in args:
+            if self.refuse:
+                raise subprocess.CalledProcessError(1, args)
+            self.resized = True
+        if "capture-pane" in args:
+            keys = [call for call in self.calls if "send-keys" in call]
+            typed = any("-l" in call for call in keys)
+            entered = any(call[-1] == "Enter" for call in keys)
+            if not entered and (not self.only_after_typing or typed):
+                if not self.resized or self.redraws or self.stays_cut_off:
+                    result.stdout = "\n".join(result.stdout.splitlines()[:-2])
+                    if self.resized and self.redraws:
+                        self.redraws -= 1
+        return result
+
+
+def test_send_makes_room_for_a_cut_off_box_before_typing(monkeypatch):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    run = CutOffScreen(before=["push it"], after=[""], redraws=2)
+    waits = []
+    ok, why = chat.send(KNOWN["ada"], "push it", run=run, sleep=waits.append,
+                        appear_wait_s=.1, clear_wait_s=.1, check_s=.1)
+    assert ok, why
+    resize = ["tmux", "resize-window", "-t", "%3", "-y", "50"]
+    unset = ["tmux", "set-window-option", "-t", "%3", "-u", "window-size"]
+    assert [c for c in run.calls if "resize-window" in c or "set-window-option" in c] == [resize, unset]
+    typed = ["tmux", "send-keys", "-t", "%3", "-l", "--", "push it"]
+    assert run.calls.index(resize) < run.calls.index(unset) < run.calls.index(typed)
+    assert any("capture-pane" in c for c in run.calls[run.calls.index(unset) + 1:run.calls.index(typed)])
+    assert len(waits) >= 4
+    assert [c[-1] for c in run.calls if "send-keys" in c] == ["push it", "Enter"]
+
+
+@pytest.mark.parametrize("window", ["1 24", "2 24", "0 50", "0 80", "bad", "0", "0 bad", "0 0"])
+def test_send_refuses_a_cut_off_box_when_no_room_can_be_made(monkeypatch, window):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    run = CutOffScreen(before=["push it"], after=[""], window=window)
+    assert chat.send(KNOWN["ada"], "push it", run=run, sleep=lambda s: None,
+                     appear_wait_s=.01, clear_wait_s=.01, check_s=.01) == (
+        False, "Ada's input box is cut off by the bottom of its window; not typed")
+    assert not [c for c in run.calls if "resize-window" in c or "set-window-option" in c or "send-keys" in c]
+
+
+def test_send_refuses_a_cut_off_box_when_tmux_refuses_room(monkeypatch):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    run = CutOffScreen(before=["push it"], after=[""], refuse=True)
+    ok, why = chat.send(KNOWN["ada"], "push it", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and "cut off" in why
+    assert sum("resize-window" in c for c in run.calls) == 1
+    assert not [c for c in run.calls if "send-keys" in c or "set-window-option" in c]
+
+
+def test_send_refuses_a_box_still_cut_off_after_making_room(monkeypatch):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    run = CutOffScreen(before=["push it"], after=[""], stays_cut_off=True)
+    waits = []
+    ok, why = chat.send(KNOWN["ada"], "push it", run=run, sleep=waits.append,
+                        appear_wait_s=.1, clear_wait_s=.1, check_s=.1)
+    assert not ok and "cut off" in why
+    assert .9 <= sum(waits) <= 1.1
+    assert not [c for c in run.calls if "send-keys" in c]
+
+
+@pytest.mark.parametrize(("start", "ours", "status", "keys"), [
+    ("push it", True, "busy", ["Enter"]),
+    ("earlier words", True, "idle", ["C-c", "push it", "Enter"]),
+    ("earlier words", True, "busy", []),
+    ("push it", False, "idle", []),
+])
+def test_send_checks_words_revealed_by_a_cut_off_box(monkeypatch, tmp_path, start, ours, status, keys):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    _failed(tmp_path, monkeypatch, *([start] if ours else []))
+    run = CutOffScreen(before=["push it"], after=[""], start=start)
+    ok, why = chat.send(KNOWN["ada"] | {"status": status}, "push it", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert ok is bool(keys), why
+    assert [c[-1] for c in run.calls if "send-keys" in c] == keys
+    if not keys:
+        assert "already holds words" in why
+
+
+def test_send_makes_room_when_typing_cuts_off_the_box(monkeypatch):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    run = CutOffScreen(before=["push it"], after=[""], only_after_typing=True, redraws=2)
+    ok, why = chat.send(KNOWN["ada"], "push it", run=run, sleep=lambda s: None,
+                        appear_wait_s=.1, clear_wait_s=.01, check_s=.01)
+    assert ok, why
+    assert sum("resize-window" in c for c in run.calls) == 1
+    assert sum("set-window-option" in c for c in run.calls) == 1
+    assert [c[-1] for c in run.calls if "send-keys" in c] == ["push it", "Enter"]
+
+
+def test_send_keeps_the_screen_when_typed_words_stay_cut_off(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    log = _failed(tmp_path, monkeypatch)
+    run = CutOffScreen(before=["push it"], after=[""], only_after_typing=True, stays_cut_off=True)
+    detail = "the input box is cut off by the bottom of its window; Enter was not pressed"
+    assert chat.send(KNOWN["ada"], "push it", run=run, sleep=lambda s: None,
+                     appear_wait_s=.1, clear_wait_s=.01, check_s=.01) == (False, "typed, not confirmed: " + detail)
+    assert sum("resize-window" in c for c in run.calls) == 1
+    assert [c[-1] for c in run.calls if "send-keys" in c] == ["push it"]
+    kept = json.loads(log.with_name("send-failures.jsonl").read_text())
+    assert kept["detail"] == detail and chat.input_cut_off(kept["screen"])
+
+
+def test_retry_does_not_pile_words_onto_a_cut_off_box(monkeypatch, tmp_path):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    log = _failed(tmp_path, monkeypatch)
+    run = CutOffScreen(before=["push it"], after=[""], only_after_typing=True, window="1 24")
+    ok, why = chat.send(KNOWN["ada"], "push it", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert not ok and why.startswith("typed, not confirmed")
+    chat.record({"at": time.time(), "to": "Ada", "text": "push it", "ok": ok, "detail": why}, log)
+    run.window = "0 24"
+    ok, why = chat.send(KNOWN["ada"], "push it", run=run, sleep=lambda s: None,
+                        appear_wait_s=.01, clear_wait_s=.01, check_s=.01)
+    assert ok, why
+    assert [c[-1] for c in run.calls if "send-keys" in c] == ["push it", "Enter"]
+
+
+@pytest.mark.parametrize("words", list("0123456789&é\"'(-§è_çà") + ["２", "e\u0301"])
+def test_send_protects_a_lone_card_character(monkeypatch, words):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    run = Screen(before=[" " + words], after=[""])
+    assert chat.send(KNOWN["ada"], words, run=run, sleep=lambda s: None,
+                     appear_wait_s=.01, clear_wait_s=.01, check_s=.01) == (True, "")
+    assert [c[-1] for c in run.calls if "send-keys" in c] == [" " + words, "Enter"]
+
+
+@pytest.mark.parametrize("words", ["12", "y", "2 please"])
+def test_send_leaves_other_card_characters_unchanged(monkeypatch, words):
+    monkeypatch.setattr(chat, "_stat", lambda pid: ["S", "1", "11", "0", "0", "11"])
+    run = Screen(before=[words], after=[""])
+    assert chat.send(KNOWN["ada"], words, run=run, sleep=lambda s: None,
+                     appear_wait_s=.01, clear_wait_s=.01, check_s=.01) == (True, "")
+    assert [c[-1] for c in run.calls if "send-keys" in c] == [words, "Enter"]
 
 
 class SwitchScreen(Screen):
