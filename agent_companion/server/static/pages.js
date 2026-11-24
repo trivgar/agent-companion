@@ -33,12 +33,24 @@
     }).join('')}</div>`;
   }
 
+  // An open page is drawn once. The shell refreshes this view every few
+  // seconds, and writing the frame again loaded the page again at its top, a
+  // few lines into reading it. While the frame on screen is this page's, a
+  // refresh or arming Delete changes only the button beside it.
   function drawPage() {
     const page = records.find(record => record.id === open);
     if (!page) { open = ''; pageHtml = null; setAddress(''); drawList(); return; }
     const armed = deleting === open;
+    const shown = box.querySelector('.pg-frame');
+    if (shown && pageHtml !== null && shown.dataset.shown === open) {
+      const remove = box.querySelector('.pg-delete');
+      remove.classList.toggle('pg-armed', armed);
+      remove.textContent = armed ? 'Delete again' : 'Delete';
+      remove.disabled = false;
+      return;
+    }
     const frame = pageHtml === null ? (problem ? `<p class="pg-empty pg-error">${esc(problem)}</p>` : '<p class="pg-empty">Loading page...</p>') :
-      `<iframe class="pg-frame" title="${esc(page.title)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms" referrerpolicy="no-referrer"></iframe>`;
+      `<iframe class="pg-frame" data-shown="${esc(open)}" title="${esc(page.title)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms" referrerpolicy="no-referrer"></iframe>`;
     box.innerHTML = `<div class="pg-open"><div class="pg-actions"><button type="button" class="act pg-back">Back</button><button type="button" class="act pg-delete${armed ? ' pg-armed' : ''}" data-delete="${esc(open)}">${armed ? 'Delete again' : 'Delete'}</button></div><h2 class="pg-heading">${esc(page.title)}</h2>${frame}</div>`;
     const target = box.querySelector('.pg-frame');
     if (target && pageHtml !== null) {

@@ -4,6 +4,7 @@ from __future__ import annotations
 import socket
 import threading
 import time
+from contextlib import contextmanager
 
 import pytest
 
@@ -18,11 +19,14 @@ TOKEN = "t" * 32
 OWNER = "o" * 64
 
 
-def test_pages_nav_direct_link_frame_and_delete_at_phone_width(tmp_path, monkeypatch):
+@contextmanager
+def _dashboard(tmp_path, monkeypatch, html, title):
+    """One published page and a dashboard that has only the Pages feature, at
+    phone width: yields the browser page, the server's address and the record."""
     root = tmp_path / "pages"
     monkeypatch.setenv("AGENT_COMPANION_PAGES_DIR", str(root))
     record, _ = pages.Store(root).publish(
-        html="<h1>Published page</h1>", title="A very long published page title " * 8,
+        html=html, title=title,
         folder=tmp_path, source=tmp_path / "page.html", speaker="agent", project="project",
         household=False,
     )
@@ -52,27 +56,75 @@ def test_pages_nav_direct_link_frame_and_delete_at_phone_width(tmp_path, monkeyp
                 pytest.skip(f"chromium unavailable: {exc}")
             page = browser.new_context(viewport={"width": 390, "height": 844}).new_page()
             page.add_init_script(f"localStorage.setItem('cc-owner-key', '{OWNER}')")
-            page.goto(f"{address}/?view=pages&page={record['id']}")
-            page.wait_for_selector(".pg-frame")
-            assert page.locator('#nav button[data-id="pages"]').count() == 1
-            frame = page.locator(".pg-frame")
-            assert frame.get_attribute("sandbox") == "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms"
-            assert frame.get_attribute("referrerpolicy") == "no-referrer"
-            page.goto(f"{address}/?view=pages")
-            page.wait_for_selector(".pg-card")
-            page.click(".pg-card")
-            page.wait_for_selector(".pg-frame")
-            page.click(".pg-back")
-            assert page.locator(".pg-card").count() == 1
-            page.click(".pg-card")
-            page.click(".pg-delete")
-            assert page.locator(".pg-delete").inner_text() == "Delete again"
-            page.click(".pg-delete")
-            page.wait_for_selector(".pg-empty")
-            assert "No pages yet. An agent makes one with page publish." in page.locator(".pages").inner_text()
-            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            yield page, address, record
             browser.close()
     finally:
         service.should_exit = True
         thread.join(timeout=5)
         listener.close()
+
+
+def test_pages_nav_direct_link_frame_and_delete_at_phone_width(tmp_path, monkeypatch):
+    with _dashboard(tmp_path, monkeypatch, "<h1>Published page</h1>",
+                    "A very long published page title " * 8) as (page, address, record):
+        page.goto(f"{address}/?view=pages&page={record['id']}")
+        page.wait_for_selector(".pg-frame")
+        assert page.locator('#nav button[data-id="pages"]').count() == 1
+        frame = page.locator(".pg-frame")
+        assert frame.get_attribute("sandbox") == "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms"
+        assert frame.get_attribute("referrerpolicy") == "no-referrer"
+        page.goto(f"{address}/?view=pages")
+        page.wait_for_selector(".pg-card")
+        page.click(".pg-card")
+        page.wait_for_selector(".pg-frame")
+        page.click(".pg-back")
+        assert page.locator(".pg-card").count() == 1
+        page.click(".pg-card")
+        page.click(".pg-delete")
+        assert page.locator(".pg-delete").inner_text() == "Delete again"
+        page.click(".pg-delete")
+        page.wait_for_selector(".pg-empty")
+        assert "No pages yet. An agent makes one with page publish." in page.locator(".pages").inner_text()
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+
+
+def test_an_open_page_keeps_its_place_through_the_shells_refresh(tmp_path, monkeypatch):
+    """The shell refreshes the showing view every five seconds. Each refresh
+    wrote the open page's frame again, so a long page jumped back to its top
+    a few lines into reading it."""
+    tall = "<body style='margin:0'>" + "".join(f"<p style='height:40px;margin:0'>line {n}</p>" for n in range(200))
+    with _dashboard(tmp_path, monkeypatch, tall, "A long page") as (page, address, record):
+        page.clock.install()
+        page.goto(f"{address}/?view=pages&page={record['id']}")
+        page.wait_for_selector(".pg-frame")
+        frame = page.query_selector(".pg-frame").content_frame()
+        frame.wait_for_selector("p")
+        frame.evaluate("() => window.scrollTo(0, 1200)")
+        assert frame.evaluate("() => window.scrollY") == 1200
+        # Mark this frame, and collect every list request so a refresh can be waited for.
+        page.evaluate("""() => {
+            document.querySelector('.pg-frame').dataset.mine = '1';
+            const real = CC.get;
+            window.__lists = [];
+            CC.get = (...args) => {
+                const asked = real(...args);
+                if (args[0] === '/api/pages') window.__lists.push(asked);
+                return asked;
+            };
+        }""")
+        for _ in range(2):
+            page.clock.run_for(5000)          # the shell's own timer comes due
+            asked = page.evaluate("""async () => {
+                const lists = window.__lists.splice(0);
+                await Promise.all(lists);
+                await Promise.resolve();
+                return lists.length;
+            }""")
+            assert asked >= 1, "the shell did not refresh the Pages view"
+        assert page.get_attribute(".pg-frame", "data-mine") == "1"      # the same frame, not a new one
+        assert frame.evaluate("() => window.scrollY") == 1200
+        # Arming Delete changes the button, not the page under it.
+        page.click(".pg-delete")
+        assert page.locator(".pg-delete").inner_text() == "Delete again"
+        assert page.get_attribute(".pg-frame", "data-mine") == "1"
+        assert frame.evaluate("() => window.scrollY") == 1200
