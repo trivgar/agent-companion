@@ -208,6 +208,7 @@ def ring_brief(ring_id: str):
     brief = ring.brief(ring_id)
     if not brief:
         raise HTTPException(404, "no such ring")
+    ring.fetched(ring_id)
     return JSONResponse(brief, headers={"Cache-Control": "no-store"})
 
 
@@ -262,6 +263,10 @@ def call_tool(tool: str, body: dict = Body(default={})):
     _release(released)
     if not call:
         return JSONResponse(_CLOSED, status_code=409)
+    why = livecall.unheard(call)
+    if why:
+        return JSONResponse({"ok": True, "result": {"done": False, "sent": False, "detail": why}},
+                            headers={"Cache-Control": "no-store"})
     args = body.get("args") if isinstance(body.get("args"), dict) else {}
     known = _known()
     if tool == "list_sessions":

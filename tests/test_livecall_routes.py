@@ -44,6 +44,10 @@ def post(client, path, body, headers=PAGE):
     return client.post(path, json=body, headers=headers)
 
 
+def _spoke(client, call_id):
+    assert post(client, "/api/call/heard", {"call_id": call_id, "text": "what is it"}).status_code == 200
+
+
 def test_live_call_is_hidden_and_routes_are_absent_without_a_key_file(monkeypatch):
     monkeypatch.setattr(server, "FEATURES", [])
     monkeypatch.setenv("AGENT_COMPANION_GEMINI_KEY_FILE", "")
@@ -88,6 +92,7 @@ def test_a_shortened_permission_is_never_voice_allowed(client):
     ring_id, key = ring.new_ring("alpha", [], time.time(), ask_ids=[ask["id"]])
     ring.answer(ring_id, key)
     opened = post(client, "/api/call/token", {"ring": ring_id}).json()
+    _spoke(client, opened["call_id"])
     result = post(client, "/api/call/tool/answer_permission", {"call_id": opened["call_id"],
                   "args": {"ask": 1, "decision": "allow", "confirmed": True}}).json()["result"]
     assert result["done"] is False and "shortened" in result["detail"]
@@ -98,6 +103,7 @@ def test_a_confirmed_permission_allow_needs_a_heard_yes(client):
     ring_id, key = ring.new_ring("alpha", [], time.time(), ask_ids=[ask["id"]])
     ring.answer(ring_id, key)
     opened = post(client, "/api/call/token", {"ring": ring_id}).json()
+    _spoke(client, opened["call_id"])
     result = post(client, "/api/call/tool/answer_permission", {"call_id": opened["call_id"],
                   "args": {"ask": 1, "decision": "allow", "confirmed": True}}).json()["result"]
     assert result["done"] is False and "Read it back first" in result["detail"]
@@ -157,3 +163,34 @@ def test_without_a_coordinator_a_call_holds_nothing(client, tmp_path, monkeypatc
     call_id = post(client, "/api/call/token", {"agent": "alpha"}).json()["call_id"]
     assert post(client, "/api/call/end", {"call_id": call_id}).json() == {"ok": True}
     assert not (tmp_path / "none").exists()
+
+
+def test_fetching_a_rings_brief_marks_it_fetched(client):
+    then = time.time() - ring.LAND_S - 5
+    first, _ = ring.new_ring("alpha", [{"title": "t1", "body": "b", "url": "/u1", "tag": "x", "actions": []}], then)
+    ring.new_ring("alpha", [{"title": "t2", "body": "b", "url": "/u2", "tag": "x", "actions": []}], then)
+    assert client.get(f"/api/ring/{first}", headers={auth.OWNER_HEADER: OWNER}).status_code == 200
+    sent = []
+    assert ring.fall_back([], lambda *x: sent.append(x) or True) == 1
+    assert sent[0][2] == "/u2", "the second ring's alert goes, the fetched one's does not"
+
+
+def test_no_tool_runs_on_a_rings_call_before_the_caller_speaks(client, monkeypatch):
+    ask = asks.create("alpha", "public", "s1", "Bash", {"command": "ls"}, now=time.time())
+    ring_id, key = ring.new_ring("alpha", [], time.time(), ask_ids=[ask["id"]])
+    ring.answer(ring_id, key)
+    opened = post(client, "/api/call/token", {"ring": ring_id}).json()
+    sent = []
+    monkeypatch.setattr(routes.chat, "send", lambda *a, **k: sent.append(a) or (True, ""))
+
+    def tool(name, args):
+        return post(client, f"/api/call/tool/{name}", {"call_id": opened["call_id"], "args": args}).json()["result"]
+
+    held = {"done": False, "sent": False, "detail": livecall.UNHEARD}
+    assert tool("answer_permission", {"ask": 1, "decision": "deny", "confirmed": False}) == held
+    assert tool("ask_session", {"name": "alpha", "text": "go"}) == held
+    assert tool("list_sessions", {}) == held
+    assert asks.get(ask["id"])["status"] == "pending" and sent == []
+    assert post(client, "/api/call/heard", {"call_id": opened["call_id"], "text": "deny it"}).status_code == 200
+    result = tool("answer_permission", {"ask": 1, "decision": "deny", "confirmed": False})
+    assert result["done"] is True and result["status"] == "deny"
