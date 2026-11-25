@@ -43,6 +43,50 @@ PAGE_HEADERS = {
     "Content-Type": "text/html; charset=utf-8",
 }
 
+# The Android app adds this token to its user agent only when pages cannot
+# reach its native bridge (mobile/configure.py, PageSeal.java).  An app that
+# names itself but lacks the token is an older build: it gets no pages.
+SEAL_TOKEN = "CompanionSealed/1"
+_SEAL_PREFIX = "CompanionSealed/"
+
+NOTICE_HTML = """<!doctype html>
+<html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>This page opens after an app update</title>
+<style>
+html { color-scheme: dark; background: #14181f; color: #f1f3f6; font: 17px/1.6 system-ui, sans-serif; }
+body { max-width: 34rem; margin: 0 auto; padding: 2rem 1.25rem; }
+h1 { font-size: 1.5rem; line-height: 1.3; }
+</style>
+<h1>This page opens after an app update</h1>
+<p>This build of the app would let a page reach the phone's native controls, so pages stay closed in it.</p>
+<p>Update the app, or open the dashboard in a browser.</p>
+</html>"""
+NOTICE_HEADERS = {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'",
+}
+
+
+def app_tag(app_name: str) -> str:
+    """The user-agent tag of the Android app: the name's ASCII letters and
+    digits, then "App" ("Hilltop Two" -> "HilltopTwoApp").  No such
+    characters, no tag."""
+    letters = "".join(c for c in str(app_name or "") if c.isascii() and c.isalnum())
+    return letters + "App" if letters else ""
+
+
+def unsealed_app(user_agent: str | None, app_name: str | None) -> bool:
+    """Whether this request comes from the app without its seal token."""
+    tag = app_tag(app_name or "")
+    if not tag:
+        return False
+    tokens = (user_agent or "").split()
+    return tag in tokens and not any(t.startswith(_SEAL_PREFIX) for t in tokens)
+
 
 class Refused(ValueError):
     """A syntactically valid publish request that is not allowed."""

@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
-from .. import addons, pages as pages_mod
+from .. import addons, config, pages as pages_mod
 from . import auth, push
 
 
@@ -58,6 +58,8 @@ def html(page_id: str, request: Request):
     record = store.get(page_id)
     if record is None or not store.can_view(record, _viewer(request)):
         raise HTTPException(status_code=404, detail="page not found")
+    if pages_mod.unsealed_app(request.headers.get("user-agent"), config.get("app_name")):
+        return Response(pages_mod.NOTICE_HTML, status_code=403, headers=pages_mod.NOTICE_HEADERS)
     content = store.html(page_id)
     if content is None:
         raise HTTPException(status_code=404, detail="page not found")

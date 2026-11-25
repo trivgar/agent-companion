@@ -204,3 +204,44 @@ def test_can_view_follows_the_visible_hook_and_defaults_to_can_see(tmp_path):
     strict = pages.Store(tmp_path / "pages", visible=lambda rec, viewer: viewer == rec["owner"])
     assert strict.can_view(record, "owner")
     assert not strict.can_view(record, "partner")
+
+
+def test_the_app_tag_is_the_names_letters_and_digits_then_app():
+    assert pages.app_tag("Hilltop") == "HilltopApp"
+    assert pages.app_tag("Hilltop Two") == "HilltopTwoApp"
+    assert pages.app_tag("Hill-top!") == "HilltopApp"
+    assert pages.app_tag("") == ""
+
+
+BROWSER = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
+
+
+def test_an_app_without_the_seal_is_told_from_a_sealed_one_and_from_a_browser():
+    unsealed = BROWSER + " HilltopApp"
+    assert pages.unsealed_app(unsealed, "Hilltop")
+    assert not pages.unsealed_app(unsealed + " CompanionSealed/1", "Hilltop")
+    assert not pages.unsealed_app(BROWSER, "Hilltop")
+    assert not pages.unsealed_app(BROWSER + " NotHilltopApp", "Hilltop")
+    assert not pages.unsealed_app(None, "Hilltop")
+    for name in ("", None):
+        assert not pages.unsealed_app(unsealed, name)
+
+
+def test_an_unsealed_app_gets_the_notice_and_never_the_page(client, monkeypatch):
+    c, root, _, _ = client
+    marker = "marker-7f3a9c"
+    made = c.post("/api/pages", json=_body(root, html=f"<p>{marker}</p>"), headers={auth.HEADER_NAME: TOKEN})
+    page_id = made.json()["page"]["id"]
+    real_get = page_routes.config.get
+    monkeypatch.setattr(page_routes.config, "get",
+                        lambda key, default=None: "Hilltop" if key == "app_name" else real_get(key, default))
+
+    old = c.get(f"/pages/{page_id}", headers={**OWNER, "user-agent": BROWSER + " HilltopApp"})
+    assert old.status_code == 403 and old.text == pages.NOTICE_HTML and marker not in old.text
+    for name, value in pages.NOTICE_HEADERS.items():
+        assert old.headers[name].startswith(value)
+    for agent in (BROWSER + " HilltopApp CompanionSealed/1", BROWSER):
+        got = c.get(f"/pages/{page_id}", headers={**OWNER, "user-agent": agent})
+        assert got.status_code == 200 and marker in got.text
+    gone = c.get("/pages/does-not-exist", headers={**OWNER, "user-agent": BROWSER + " HilltopApp"})
+    assert gone.status_code == 404

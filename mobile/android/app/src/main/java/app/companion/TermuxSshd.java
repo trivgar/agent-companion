@@ -11,7 +11,8 @@ import android.util.Log;
 // THE COMMAND IS A CONSTANT, AND THAT IS THE POINT. Nothing reaches this class
 // from the server, a push payload, the page's JavaScript or a URL: restart()
 // takes no argument, and the only things that start it are a tap on the page's
-// button (MainActivity's CompanionAppNative) and an FCM data message whose kind is
+// button (a message to MainActivity's native listener, which answers only the
+// main frame of the app's own origin) and an FCM data message whose kind is
 // "sshd_restart" (CommsMessagingService), which carries no text. It is the
 // line a person used to type: kill every sshd, wait, start one only if none runs.
 final class TermuxSshd {

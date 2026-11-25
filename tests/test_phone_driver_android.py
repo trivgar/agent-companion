@@ -427,7 +427,8 @@ def test_every_hand_tells_takeover():
 
 def test_the_live_call_tells_the_driver():
     main = _src("MainActivity.java")
-    assert "public void callState(boolean up)" in main and "LiveCall.up = up;" in main
+    # The page's report arrives as a message now (the native object is a listener).
+    assert 'case "callState":' in main and "LiveCall.up = (Boolean) up;" in main
     r = _src("RingConnection.java")
     assert "LiveCall.ring = true" in r and "LiveCall.ring = false" in r
 

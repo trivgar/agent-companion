@@ -341,6 +341,8 @@ cd android
 
 The APK is at `mobile/android/app/build/outputs/apk/debug/app-debug.apk`.
 
+After updating, run `mobile/configure.py` again and rebuild: the app's address and user agent changed, and an app built before that is not given pages.
+
 Pair the app, then open it once: each time a page loads, the app keeps a copy
 of the paired key for its background features (push-delivered comms, clip
 playback, update checks), which run with no page open. Pairing again replaces

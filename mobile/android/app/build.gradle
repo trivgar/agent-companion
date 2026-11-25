@@ -77,6 +77,9 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    // MainActivity uses WebViewCompat, so the app names the library itself, at the
+    // version Capacitor uses (variables.gradle).
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation "com.google.firebase:firebase-messaging:25.0.1"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

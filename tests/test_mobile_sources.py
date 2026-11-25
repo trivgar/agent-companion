@@ -42,3 +42,29 @@ def test_gradle_generates_slug_and_native_name_resources():
     text = (ROOT / "mobile" / "android" / "app" / "build.gradle").read_text()
     assert 'resValue "string", "app_slug", appSlug' in text
     assert 'resValue "string", "native_name", nativeName' in text
+
+
+def test_no_java_source_hands_a_page_a_javascript_interface():
+    bad = [path.name for path in (ROOT / "mobile" / "android" / "app" / "src" / "main" / "java").rglob("*.java")
+           if "JavascriptInterface" in path.read_text()]
+    assert not bad, f"a page-reachable native object in: {bad}"
+
+
+def test_the_native_object_is_an_origin_ruled_main_frame_listener():
+    text = (JAVA / "MainActivity.java").read_text()
+    for needle in ("WebViewCompat.addWebMessageListener", "getString(R.string.native_name)",
+                   "getBridge().getAllowedOriginRules()", "if (!isMainFrame) return;"):
+        assert needle in text, needle
+
+
+def test_the_seal_token_is_one_string_in_java_and_python():
+    from agent_companion import pages
+
+    assert '"CompanionSealed/1"' in (JAVA / "PageSeal.java").read_text()
+    assert pages.SEAL_TOKEN == "CompanionSealed/1"
+    assert "PageSeal.withoutToken(" in (JAVA / "MainActivity.java").read_text()
+
+
+def test_the_app_names_the_webkit_library_itself():
+    text = (ROOT / "mobile" / "android" / "app" / "build.gradle").read_text()
+    assert 'implementation "androidx.webkit:webkit:$androidxWebkitVersion"' in text

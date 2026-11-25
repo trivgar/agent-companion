@@ -121,7 +121,7 @@ before the edit; it never pushes.
 
 **Specs.** Read the design specs and plans in every checkout's `docs/superpowers/specs` and `docs/superpowers/plans`, plus any folder named in `spec_folders`, newest first, each document once per repository and with who is working in it, without permitting edits. A new spec sends a push notification to your phone; a new plan does not.
 
-**Pages.** An agent can publish one self-contained HTML page to the dashboard with `bin/page publish FILE --title TITLE`. Pages run in an opaque-origin, no-network sandbox. They are private to the owner unless `--household` is used; `pages_private_dirs` keeps selected source folders owner-only.
+**Pages.** An agent can publish one self-contained HTML page to the dashboard with `bin/page publish FILE --title TITLE`. Pages run in an opaque-origin, no-network sandbox. They are private to the owner unless `--household` is used; `pages_private_dirs` keeps selected source folders owner-only. The Android app must be built from this version or later to open them.
 
 **Asks.** When a session wants permission to run something, or asks you a
 multiple-choice question, the asks hook sends it, with the full command or
