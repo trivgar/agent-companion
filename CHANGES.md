@@ -3,6 +3,17 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## Unreleased
+- Android app: pages are sealed from the app's native bridge. The app's
+  address is now written as a bare origin (a path or query in `url` moves to
+  the start path), so Capacitor can restrict its bridge to that origin. The
+  app's native object is no longer a set of methods but an origin-ruled,
+  main-frame-only message listener: a host page that called
+  `window.<Name>Native.callState(true)` now posts
+  `window.<Name>Native.postMessage(JSON.stringify({do: "callState", up: true}))`
+  (and `{do: "ringEnded"}`, or `{do: "restartPhoneSshd", id: "1"}`, whose
+  answer arrives on `onmessage` as `{"id": "1", "answer": "started"}`). An app
+  built before this is refused pages with a notice until it is rebuilt: run
+  `mobile/configure.py` again and rebuild.
 - Chat: cut-off input boxes get more room in detached windows, preventing
   retries from piling up; lone digits and AZERTY digit keys reach the session
   without being taken by a card.

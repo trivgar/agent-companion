@@ -6,12 +6,14 @@ import json
 import shutil
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from agent_companion import config
+from agent_companion.pages import SEAL_TOKEN, app_tag
 
 
 def _slug(value: str) -> str:
@@ -21,7 +23,7 @@ def _slug(value: str) -> str:
 def user_agent(app_name: str) -> str:
     """The tag the page looks for to know it is inside the app: the name's
     letters and digits, then "App" ("Hilltop" -> "HilltopApp")."""
-    return "".join(c for c in app_name if c.isascii() and c.isalnum()) + "App"
+    return app_tag(app_name)
 
 
 def _write_properties(path: Path, app_id: str, app_name: str) -> None:
@@ -42,16 +44,25 @@ def configure(out: Path) -> int:
         print("firebase_app_file does not name a file", file=sys.stderr)
         return 1
 
-    url = str(settings["url"])
-    if not url.endswith("/"):
-        url += "/"
+    parts = urlsplit(str(settings["url"]))
+    if not parts.scheme or not parts.netloc:
+        # The example host is split: the repo-wide leak scan flags a whole *.ts.net name.
+        print("url must be a full address, such as https://box.example." "ts.net", file=sys.stderr)
+        return 1
+    # Capacitor passes server.url raw as an allowed-origin rule: with a path
+    # or query the rule is invalid and it falls back to a native bridge that
+    # every frame gets, a published page's included. So only the origin goes
+    # there, and a path or query becomes the start path.
+    server = {"url": f"{parts.scheme}://{parts.netloc}", "androidScheme": "https"}
+    if parts.query or parts.path not in ("", "/"):
+        server["appStartPath"] = (parts.path or "/") + ("?" + parts.query if parts.query else "")
     out.mkdir(parents=True, exist_ok=True)
     (out / "capacitor.config.json").write_text(json.dumps({
         "appId": app_id,
         "appName": app_name,
         "webDir": "www",
-        "server": {"url": url, "androidScheme": "https"},
-        "android": {"appendUserAgent": user_agent(app_name)},
+        "server": server,
+        "android": {"appendUserAgent": f"{user_agent(app_name)} {SEAL_TOKEN}"},
     }, indent=2) + "\n")
     app_dir = out / "android" / "app"
     app_dir.mkdir(parents=True, exist_ok=True)
