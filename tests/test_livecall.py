@@ -166,6 +166,20 @@ def test_a_rings_instruction_says_no_tool_before_the_caller_speaks():
     assert line not in livecall.instruction()
 
 
+def test_the_operator_says_a_few_words_before_a_tool_on_a_call_the_owner_started():
+    # Measured against the live model. Without the line it said nothing until
+    # the tool answered. On a ring's call the same line made its closing words
+    # claim more than the tool result said, so a ring's call does not carry it.
+    # Change the wording, or where it applies, only with a new measurement.
+    line = ('Before you call a tool, first say a very short lead-in of three or four words, such as '
+            '"Checking now" or "Asking them now", so the caller never waits in silence.')
+    assert livecall.SAY_FIRST == line
+    assert line in livecall.instruction()
+    assert line in livecall.instruction(agent="alpha")
+    assert line not in livecall.instruction(brief="Ask 1: x")
+    assert line not in livecall.instruction(agent="alpha", brief="Ask 1: x")
+
+
 def test_daily_cap_comes_from_settings(monkeypatch, tmp_path):
     monkeypatch.setattr(livecall.config, "get", lambda key, default=None: 5 if key == "livecall_daily_minutes" else default)
     livecall.log_path().write_text(json.dumps({"start": NOW, "minutes": 5, "asked": []}) + "\n")
