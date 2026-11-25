@@ -378,7 +378,8 @@ def test_a_paused_job_answers_at_once_but_holds_wait(tmp_path):
     async def go():
         _, jid = await started(r)
         r.event({"device_id": DID, "job": jid, "kind": "takeover"})
-        paused = await asyncio.wait_for(r.command(jid, "c-000001", "look", {}), timeout=0.05)
+        # "At once" is against the 10 s command wait: the timeout only stops a hang.
+        paused = await asyncio.wait_for(r.command(jid, "c-000001", "look", {}), timeout=2.0)
         waiting = asyncio.create_task(r.command(jid, "c-000002", "wait", {"s": 1}))
         await asyncio.sleep(FAST["tick"] * 2)
         r.event({"device_id": DID, "job": jid, "kind": "resume"})
@@ -439,9 +440,9 @@ def test_a_waiting_job_answers_at_once(tmp_path):
     async def go():
         _, jid = await started(r)
         r.event({"device_id": DID, "job": jid, "kind": "locked"})
-        locked = await asyncio.wait_for(r.command(jid, "c-000001", "tap", {"n": 1}), timeout=0.05)
+        locked = await asyncio.wait_for(r.command(jid, "c-000001", "tap", {"n": 1}), timeout=2.0)
         r.event({"device_id": DID, "job": jid, "kind": "call_wait"})
-        calling = await asyncio.wait_for(r.command(jid, "c-000002", "tap", {"n": 1}), timeout=0.05)
+        calling = await asyncio.wait_for(r.command(jid, "c-000002", "tap", {"n": 1}), timeout=2.0)
         return locked, calling
 
     locked, calling = asyncio.run(go())
@@ -631,19 +632,18 @@ def test_a_prompt_the_device_never_let_go_lapses_and_the_stall_clock_runs_again(
 
 
 def test_a_turn_user_never_takes_ends_the_job(tmp_path):
-    r = make(tmp_path, lock_wait_s=0.05, stall_s=0.01)
+    # On the injected clock, not real sleeps: a 30 ms sleep against a 50 ms
+    # wait left 20 ms, and one slow tick on a shared runner is longer than that.
+    clock = Clock()
+    r = make(tmp_path, clock=clock, stall_s=5.0, lock_wait_s=10.0, lost_s=100.0)
     register(r)
-
-    async def go():
-        _, jid = await started(r)
-        r.event({"device_id": DID, "job": jid, "kind": "your_turn", "what": "the Wi-Fi password"})
-        await asyncio.sleep(0.03)
-        r.tidy()
-        mid = r.jobs[jid]["state"]
-        await asyncio.sleep(0.05)
-        r.tidy()
-        return jid, mid
-    jid, mid = asyncio.run(go())
+    _, jid = asyncio.run(started(r))
+    r.event({"device_id": DID, "job": jid, "kind": "your_turn", "what": "the Wi-Fi password"})
+    clock.advance(6.0)          # past the stall, inside the turn's wait
+    r.tidy()
+    mid = r.jobs[jid]["state"]
+    clock.advance(5.0)          # past the turn's wait
+    r.tidy()
     assert mid == "running", "a turn is never a stall"
     assert r.jobs[jid]["outcome"] == "expired" and "a turn" in r.jobs[jid]["detail"]
 
