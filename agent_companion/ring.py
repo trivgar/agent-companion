@@ -27,6 +27,9 @@ KEEP_RUNG_S = 2 * 86400
 KEEP_DAYS = 7
 EVERY_S = 30
 RING_KEEP_S = 3600
+# A ring's push lives 60 s and the phone gives the fetch two 6 s tries, so a
+# ring nobody fetched 90 s after it was sent can no longer ring.
+LAND_S = 90
 _KEYS_LOCK = threading.Lock()
 
 
@@ -295,6 +298,72 @@ def release(rid: str, state_path: Path | None = None) -> None:
             save(data, path)
 
 
+def _hex(rid: str) -> bool:
+    return bool(rid) and all(char in "0123456789abcdef" for char in rid)
+
+
+def fetched(rid: str, now: float | None = None, state_path: Path | None = None) -> None:
+    """Note that the phone asked for this ring's brief, so it has the ring or its alerts."""
+    now = time.time() if now is None else now
+    if not _hex(rid):
+        return
+    path = _rings_path(state_path)
+    with _KEYS_LOCK:
+        data = _read_keys(path)
+        entry = data.get(rid)
+        if isinstance(entry, dict) and not entry.get("fetched"):
+            entry["fetched"] = now
+            save(data, path)
+
+
+def _spent(rid: str, now: float, state_path: Path | None = None) -> None:
+    """Mark a ring done: its alerts went another way, so it must not fall back."""
+    path = _rings_path(state_path)
+    with _KEYS_LOCK:
+        data = _read_keys(path)
+        entry = data.get(rid)
+        if isinstance(entry, dict):
+            entry["fell"] = now
+            save(data, path)
+
+
+def fall_back(pending: list[dict], send, now: float | None = None, state_path: Path | None = None) -> int:
+    """Send the alerts of every ring that can no longer ring; return how many went."""
+    now = time.time() if now is None else now
+    path = _rings_path(state_path)
+    waiting = {str(item.get("id")) for item in pending}
+    with _KEYS_LOCK:
+        data = _read_keys(path)
+    due = [(rid, entry) for rid, entry in data.items()
+           if isinstance(entry, dict) and LAND_S <= now - float(entry.get("at") or 0) <= RING_KEEP_S
+           and not entry.get("fetched") and not entry.get("fell") and entry.get("key")]
+    count = 0
+    for rid, entry in due:
+        alerts, asks = entry.get("alerts") or [], entry.get("asks") or []
+        before = set(entry.get("sent") or [])
+        done = set(before)
+        for i, alert in enumerate(alerts):
+            if i in done:
+                continue
+            if i < len(asks) and str(asks[i]) not in waiting:
+                continue    # answered, withdrawn, or out of sight just now: not this pass
+            if send(alert.get("title", ""), alert.get("body", ""), alert.get("url", ""),
+                    alert.get("tag", ""), alert.get("actions") or []):
+                done.add(i)
+                count += 1
+        if done == before and len(done) < len(alerts):
+            continue        # nothing new for this ring: write nothing, look again next pass
+        with _KEYS_LOCK:
+            data = _read_keys(path)
+            record = data.get(rid)
+            if isinstance(record, dict):
+                record["sent"] = sorted(done)
+                if len(done) >= len(alerts):
+                    record["fell"] = now
+                save(data, path)
+    return count
+
+
 def tick(pending: list[dict], rows: list[dict], asleep: bool | None, send,
          state_path: Path | None = None, now: float | None = None, ring_send=None) -> int:
     now = time.time() if now is None else now
@@ -316,6 +385,8 @@ def tick(pending: list[dict], rows: list[dict], asleep: bool | None, send,
         rid, _ = new_ring(whos[0], alerts, now, state_path, ask_ids=[ask["id"] for ask in ripe])
         if ring_send(rid):
             went = list(ripe)
+        else:
+            _spent(rid, now, state_path)    # the push never left: the alerts go now, not again later
     if not went:
         for ask, alert in zip(ripe, alerts):
             if send(alert["title"], alert["body"], alert["url"], alert["tag"], alert["actions"]):
@@ -339,13 +410,26 @@ class Watcher:
         self.thread = threading.Thread(target=self._run, name="ring", daemon=True)
         self.thread.start()
 
+    def once(self, now: float | None = None) -> tuple[int, int]:
+        """One pass: alerts for rings the phone never fetched, then new rings."""
+        pending = self.pending()
+        try:
+            fell = fall_back(pending, self.send, now)
+        except Exception as exc:  # noqa: BLE001 - a failed fall back never stops the ring
+            print(f"ring: fall back: {type(exc).__name__}: {exc}"[:200], flush=True)
+            fell = 0
+        asleep = self.asleep() if self.asleep is not None else None
+        rung = tick(pending, self.rows(), asleep, self.send, now=now, ring_send=self.ring_send)
+        return fell, rung
+
     def _run(self) -> None:
         while True:
             try:
-                asleep = self.asleep() if self.asleep is not None else None
-                count = tick(self.pending(), self.rows(), asleep, self.send, ring_send=self.ring_send)
+                fell, count = self.once()
                 if count:
                     print(f"ring: {count} stuck ask(s) alerted", flush=True)
+                if fell:
+                    print(f"ring: {fell} alert(s) sent for a ring the phone never fetched", flush=True)
             except Exception as exc:  # noqa: BLE001 - a bad pass never ends the watcher
                 print(f"ring: {type(exc).__name__}: {exc}"[:200], flush=True)
             time.sleep(EVERY_S)

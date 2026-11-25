@@ -262,3 +262,115 @@ def test_a_private_projects_worktree_never_rings_with_its_words(monkeypatch):
     monkeypatch.setattr(ring.addons, "private", lambda cwd, project: project == "ledger")
     rows = [{"session_id": "s1", "cwd": "/work/ledger-fix-branch"}]
     assert ring._private({"session_id": "s1", "project": "ledger-fix-branch"}, rows) is True
+
+
+def _sender(sent, ok=True):
+    return lambda *x: sent.append(x) or ok
+
+
+def test_a_ring_nobody_fetched_sends_its_alerts_once_it_can_no_longer_ring(tmp_path):
+    p, sent = tmp_path / "ring.json", []
+    ring.new_ring("Juno", [_alert()], NOW, p, ask_ids=["a1"])
+    pending = [{"id": "a1"}]
+    assert ring.fall_back(pending, _sender(sent), NOW + ring.LAND_S - 1, p) == 0 and sent == []
+    assert ring.fall_back(pending, _sender(sent), NOW + ring.LAND_S, p) == 1
+    a = _alert()
+    assert sent[0] == (a["title"], a["body"], a["url"], a["tag"], a["actions"])
+    assert ring.fall_back(pending, _sender(sent), NOW + ring.LAND_S + 30, p) == 0
+    assert len(sent) == 1
+
+
+def test_a_fetched_ring_never_falls_back(tmp_path):
+    p, sent = tmp_path / "ring.json", []
+    rid, _ = ring.new_ring("Juno", [_alert()], NOW, p, ask_ids=["a1"])
+    ring.fetched(rid, NOW + 5, p)
+    assert ring.fall_back([{"id": "a1"}], _sender(sent), NOW + ring.LAND_S, p) == 0
+    ring.fetched("nope", NOW, p)
+    ring.fetched("", NOW, p)
+    assert sent == []
+
+
+def test_an_answered_ring_never_falls_back(tmp_path):
+    p, sent = tmp_path / "ring.json", []
+    rid, key = ring.new_ring("Juno", [_alert()], NOW, p, ask_ids=["a1"])
+    assert ring.answer(rid, key, NOW, p) == "Juno"
+    assert ring.fall_back([{"id": "a1"}], _sender(sent), NOW + ring.LAND_S, p) == 0
+    assert sent == []
+
+
+def test_an_ask_answered_meanwhile_gets_no_alert(tmp_path):
+    p, sent = tmp_path / "ring.json", []
+    ring.new_ring("Juno", [_alert(1), _alert(2)], NOW, p, ask_ids=["a1", "a2"])
+    pending = [{"id": "a2"}]
+    assert ring.fall_back(pending, _sender(sent), NOW + ring.LAND_S, p) == 1
+    assert sent[0][2] == _alert(2)["url"]
+    assert ring.fall_back(pending, _sender(sent), NOW + ring.LAND_S + 30, p) == 0
+    assert len(sent) == 1
+
+
+def test_an_ask_out_of_sight_for_a_pass_gets_its_alert_when_it_is_back(tmp_path):
+    p, sent = tmp_path / "ring.json", []
+    rid, _ = ring.new_ring("Juno", [_alert()], NOW, p, ask_ids=["a1"])
+    assert ring.fall_back([], _sender(sent), NOW + ring.LAND_S, p) == 0 and sent == []
+    record = ring._read_keys(ring._rings_path(p))[rid]
+    assert "fell" not in record and "sent" not in record, "a pass with nothing to send writes nothing"
+    assert ring.fall_back([{"id": "a1"}], _sender(sent), NOW + ring.LAND_S + 30, p) == 1
+    assert ring.fall_back([{"id": "a1"}], _sender(sent), NOW + ring.LAND_S + 60, p) == 0 and len(sent) == 1
+
+
+def test_an_alert_that_could_not_go_is_tried_again(tmp_path):
+    p, sent = tmp_path / "ring.json", []
+    ring.new_ring("Juno", [_alert()], NOW, p, ask_ids=["a1"])
+    pending = [{"id": "a1"}]
+    assert ring.fall_back(pending, _sender(sent, False), NOW + ring.LAND_S, p) == 0
+    assert ring.fall_back(pending, _sender(sent, True), NOW + ring.LAND_S + 30, p) == 1
+
+
+def test_an_hour_old_ring_is_left_alone(tmp_path):
+    p, sent = tmp_path / "ring.json", []
+    ring.new_ring("Juno", [_alert()], NOW, p, ask_ids=["a1"])
+    assert ring.fall_back([{"id": "a1"}], _sender(sent), NOW + ring.RING_KEEP_S + 1, p) == 0
+    assert sent == []
+
+
+def test_a_rung_ask_nobody_fetched_ends_as_the_alert_tick_kept(tmp_path):
+    p, sent = tmp_path / "ring.json", []
+    a = ask(1, 40 * 60)
+    assert ring.tick([a], [], False, _sender(sent), state_path=p, now=NOW, ring_send=lambda rid: True) == 1
+    assert sent == []
+    assert ring.fall_back([a], _sender(sent), NOW + ring.LAND_S, p) == 1
+    assert sent[0][3] == "stuck-Juno" and "&n=" in sent[0][2]
+
+
+def test_one_pass_falls_back_and_then_rings(tmp_path, monkeypatch):
+    monkeypatch.setattr(ring, "STATE", tmp_path / "ring.json")
+    sent, rang = [], []
+    ring.new_ring("Juno", [_alert()], NOW - ring.LAND_S - 1, ask_ids=[ask(1, 60)["id"]])
+    pending = [ask(1, 60), ask(2, 40 * 60)]
+    w = ring.Watcher(lambda: pending, lambda: [], lambda: False, _sender(sent),
+                     lambda rid: rang.append(rid) or True)
+    assert w.once(NOW) == (1, 1)
+    assert len(sent) == 1 and sent[0][2] == _alert()["url"]
+    assert len(rang) == 1
+
+
+def test_a_broken_fall_back_does_not_stop_the_ring(tmp_path, monkeypatch):
+    monkeypatch.setattr(ring, "STATE", tmp_path / "ring.json")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ring, "fall_back", boom)
+    rang = []
+    w = ring.Watcher(lambda: [ask(1, 40 * 60)], lambda: [], lambda: False, lambda *x: True,
+                     lambda rid: rang.append(rid) or True)
+    assert w.once(NOW) == (0, 1)
+
+
+def test_a_ring_whose_push_never_left_alerts_once(tmp_path):
+    p, sent = tmp_path / "ring.json", []
+    a = ask(1, 40 * 60)
+    assert ring.tick([a], [], False, _sender(sent), state_path=p, now=NOW, ring_send=lambda rid: False) == 1
+    assert len(sent) == 1
+    assert ring.fall_back([a], _sender(sent), NOW + ring.LAND_S, p) == 0
+    assert len(sent) == 1

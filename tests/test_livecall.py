@@ -137,6 +137,35 @@ def test_free_words_need_a_readback_and_the_callers_yes_after_it(tmp_path):
     assert livecall.said_yes(call, 1, "after lunch", NOW + 3)[0] is False
 
 
+def test_a_rings_call_takes_no_tool_until_the_caller_has_spoken():
+    call = livecall.Call(id="c", start=0.0, last_seen=0.0, ring="abc")
+    assert livecall.unheard(call) == livecall.UNHEARD
+    livecall.hear(call, "   ")
+    assert livecall.unheard(call) == livecall.UNHEARD
+    livecall.hear(call, "what is it")
+    assert livecall.unheard(call) == ""
+
+
+def test_a_spent_yes_does_not_hold_the_call_again():
+    call = livecall.Call(id="c", start=0.0, last_seen=0.0, ring="abc")
+    livecall.hear(call, "what is it", now=1.0)
+    livecall.ask_readback(call, 1, "x", now=10.0)
+    livecall.hear(call, "yes", now=11.0)
+    assert livecall.said_yes(call, 1, "x", now=12.0) == (True, "")
+    assert livecall.unheard(call) == ""
+
+
+def test_a_call_the_owner_started_is_not_held():
+    call = livecall.Call(id="c", start=0.0, last_seen=0.0, ring="")
+    assert livecall.unheard(call) == ""
+
+
+def test_a_rings_instruction_says_no_tool_before_the_caller_speaks():
+    line = "No tool works until the caller has spoken on this call."
+    assert line in livecall.instruction(brief="Ask 1: x")
+    assert line not in livecall.instruction()
+
+
 def test_daily_cap_comes_from_settings(monkeypatch, tmp_path):
     monkeypatch.setattr(livecall.config, "get", lambda key, default=None: 5 if key == "livecall_daily_minutes" else default)
     livecall.log_path().write_text(json.dumps({"start": NOW, "minutes": 5, "asked": []}) + "\n")
