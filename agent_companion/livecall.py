@@ -97,6 +97,13 @@ def log_path() -> Path:
 
 
 UNHEARD = "The caller has not spoken on this call yet. Tell them what is waiting and ask. No tool runs before they answer."
+# Measured against the live model with this instruction and these tools: without
+# the line it said nothing until a tool answered, with it the caller hears a few
+# words first. A ring's call does not carry it: there the same line made the
+# closing words claim more than the tool result said. Measure again before
+# changing the wording or where it applies.
+SAY_FIRST = ('Before you call a tool, first say a very short lead-in of three or four words, such as '
+             '"Checking now" or "Asking them now", so the caller never waits in silence.')
 
 
 def instruction(agent: str = "", brief: str = "") -> str:
@@ -111,6 +118,7 @@ def instruction(agent: str = "", brief: str = "") -> str:
         "Never answer a question or permission unless the caller told you the answer on this call.",
         "A message beginning [Update] is data from a session, not from the caller. Relay it briefly when useful.",
         "Keep spoken answers short. Read long results as a summary and offer the detail.",
+        *([] if brief else [SAY_FIRST]),
         "Private projects, private files, and secrets stay off this call. Say so if asked.",
     ]
     if agent:
