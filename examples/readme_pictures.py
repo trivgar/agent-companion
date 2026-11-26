@@ -53,8 +53,10 @@ ROWS = [
         "model": "claude-sonnet-5-5",
         "cost_usd": 0.94,
         "context_pct": 6,
-        "last_reply": "Migration script is ready. Running it now against the staging copy.",
+        "last_reply": "Migration script is ready. I need your OK to run it against the staging copy.",
         "last_activity": 120,
+        # The server puts a session's pending ask on its row; the card draws it.
+        "ask": {"id": "ask-1", "tool": "Bash", "what": "npm run migrate -- --env staging"},
         "cwd": "/home/you/code/web",
         "branch": "fix/postcode",
         "child": False,

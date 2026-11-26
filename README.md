@@ -34,7 +34,7 @@ outbound connection it can make, are listed below.
 - **Local, no telemetry.** It runs on your PC, reaches your phone over your own Tailscale, and lists every file it writes and every connection it can make.
 
 <p align="center">
-  <img src="docs/images/tab-sessions.png" alt="Sessions tab: four sessions grouped by Needs you, Working and Idle, with one card's details open" width="190">
+  <img src="docs/images/tab-sessions.png" alt="Sessions tab: four sessions grouped by Needs you, Working and Idle; the waiting one carries its request with Allow and Deny, and one card's details are open" width="190">
   <img src="docs/images/tab-dialog.png" alt="Chat: a terminal dialog waiting in a session, answered from the phone" width="190">
   <img src="docs/images/tab-pages.png" alt="Pages: an agent's report of the slowest tests, in a sandbox" width="190">
   <img src="docs/images/tab-phone.png" alt="Phone driver: an agent driving the test emulator, waiting on a prompt, with Stop" width="190">
