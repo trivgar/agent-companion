@@ -281,3 +281,15 @@ def test_the_switch_alone_is_enough_to_show_more(open_page):
     assert page.locator("#morelink").is_visible()
     page.click("#morelink")
     assert page.locator("#still-toggle").is_visible()
+
+
+def test_pictures_for_a_person_to_read(open_page):
+    out = os.environ.get("SHELL_SHOTS")
+    if not out:
+        pytest.skip("set SHELL_SHOTS=<folder> to write shell-dark.png and shell-light.png")
+    for scheme in ("dark", "light"):
+        page = open_page(scheme)
+        roboto(page)
+        page.wait_for_selector("#nav .ink.on")
+        page.wait_for_function("document.querySelectorAll('#strip span').length >= 3")
+        page.screenshot(path=os.path.join(out, f"shell-{scheme}.png"))
