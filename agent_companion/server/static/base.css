@@ -84,12 +84,10 @@ html[data-still] *, html[data-still] *::before, html[data-still] *::after {
   animation:none !important; transition:none !important }
 
 /* A choice drawn in a terminal pane, surfaced in the chat window. */
-#chat-asks .cv-ask { margin:0 0 10px; padding:10px; border:1px solid var(--alert); border-radius:8px; }
+#chat-asks .cv-ask { border-color:var(--alert); }
 #chat-asks .cv-ask.done { opacity:.5; }
 #chat-asks .cv-askhead { font-size:.85rem; font-weight:600; }
 #chat-asks .cv-askbtns { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
-#chat-asks .cv-askbtns button { min-height:40px; padding:0 16px; border:1px solid var(--line-strong); border-radius:6px;
-  background:var(--sunk); color:var(--fg); font:inherit; font-size:.84rem; font-weight:600; }
 #chat-asks .cv-termq { max-height:12rem; margin:6px 0; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere;
   font:.76rem ui-monospace, monospace; }
 #chat-asks .cv-meta { display:block; margin-top:6px; color:var(--faint); font-size:.76rem; }
@@ -106,20 +104,15 @@ html[data-still] *, html[data-still] *::before, html[data-still] *::after {
 /* Pages: an agent's HTML runs only in the sealed frame; these rules style the
    dashboard's list and controls, not the published document. */
 .pages { min-width:0; }
-.pg-list { display:grid; gap:8px; }
-.pg-card { display:grid; width:100%; gap:4px; padding:12px; text-align:left; border:1px solid var(--line);
-  border-radius:8px; background:var(--raised); color:var(--fg); font:inherit; }
+.pg-card { display:grid; width:100%; gap:4px; text-align:left; color:var(--fg); font:inherit; cursor:pointer; }
 .pg-title { font-weight:650; overflow-wrap:anywhere; }
 .pg-meta { color:var(--dim); font-size:.84rem; overflow-wrap:anywhere; }
-.pg-house { display:inline-block; margin-left:6px; padding:1px 6px; border:1px solid var(--line-strong);
-  border-radius:999px; color:var(--dim); font-size:.74rem; }
-.pg-empty { color:var(--dim); padding:24px 0; }
+.pg-house { margin-left:6px; }
 .pg-error { color:var(--alert); }
 .pg-open { min-width:0; }
 .pg-actions { display:flex; justify-content:space-between; gap:8px; margin-bottom:10px; }
 .pg-delete.pg-armed { border-color:var(--alert); color:var(--alert); font-weight:650; }
-.pg-heading { margin:0 0 10px; font-size:1.1rem; overflow-wrap:anywhere; }
-.pg-frame { display:block; width:100%; min-height:calc(100dvh - 190px); border:1px solid var(--line); border-radius:8px;
+.pg-frame { display:block; width:100%; min-height:calc(100dvh - 190px); border:1px solid var(--line); border-radius:.5rem;
   background:var(--raised); }
 /* Phone driver: status, the holder's explicit controls, and a quiet history. */
 .phone-live { display:flex; align-items:center; gap:8px 10px; margin:0 0 10px; padding:10px;

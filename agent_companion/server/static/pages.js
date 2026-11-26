@@ -24,12 +24,12 @@
 
   function drawList() {
     if (!records.length) {
-      box.innerHTML = '<p class="pg-empty">No pages yet. An agent makes one with <code>page publish</code>.</p>';
+      box.innerHTML = '<p class="empty pg-empty">No pages yet. An agent makes one with <code>page publish</code>.</p>';
       return;
     }
     box.innerHTML = `<div class="pg-list">${records.map(page => {
-      const shared = page.household ? '<span class="pg-house">household</span>' : '';
-      return `<button type="button" class="pg-card" data-page="${esc(page.id)}"><span class="pg-title">${esc(page.title)}</span><span class="pg-meta">${esc(page.speaker || 'an agent')} · ${esc(page.project || '')} · ${esc(age(page.updated))}${shared}</span></button>`;
+      const shared = page.household ? '<span class="chip quiet pg-house">household</span>' : '';
+      return `<button type="button" class="card pg-card" data-page="${esc(page.id)}"><span class="pg-title">${esc(page.title)}</span><span class="pg-meta">${esc(page.speaker || 'an agent')} · ${esc(page.project || '')} · ${esc(age(page.updated))}${shared}</span></button>`;
     }).join('')}</div>`;
   }
 
@@ -49,7 +49,7 @@
       remove.disabled = false;
       return;
     }
-    const frame = pageHtml === null ? (problem ? `<p class="pg-empty pg-error">${esc(problem)}</p>` : '<p class="pg-empty">Loading page...</p>') :
+    const frame = pageHtml === null ? (problem ? `<p class="empty pg-empty pg-error">${esc(problem)}</p>` : '<p class="empty pg-empty">Loading page...</p>') :
       `<iframe class="pg-frame" data-shown="${esc(open)}" title="${esc(page.title)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms" referrerpolicy="no-referrer"></iframe>`;
     box.innerHTML = `<div class="pg-open"><div class="pg-actions"><button type="button" class="act pg-back">Back</button><button type="button" class="act pg-delete${armed ? ' pg-armed' : ''}" data-delete="${esc(open)}">${armed ? 'Delete again' : 'Delete'}</button></div><h2 class="pg-heading">${esc(page.title)}</h2>${frame}</div>`;
     const target = box.querySelector('.pg-frame');

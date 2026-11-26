@@ -7,24 +7,18 @@
   const css = document.createElement('style');
   css.textContent = `
     .mfresh { display:flex; flex-wrap:wrap; gap:4px 10px; align-items:center; color:var(--dim); font-size:.8rem; margin:0 0 10px; }
-    .mdemo { color:var(--alert); border:1px solid var(--alert); border-radius:6px; padding:0 6px; font-weight:700; }
-    .mnw .big { font-size:1.9rem; font-weight:700; line-height:1.2; }
+    .mdemo { font-weight:700; }
+    .mnw .big { font-size:1.9rem; font-weight:700; line-height:1.2; font-variant-numeric:tabular-nums; }
     .mnw svg, .mflow svg { display:block; width:100%; }
     .mnw svg { height:56px; color:var(--dim); }
-    .mrow { display:flex; justify-content:space-between; gap:12px; padding:6px 0; border-top:1px solid var(--line); }
-    .mrow:first-of-type { border-top:0; }
-    .mrow .amt { font-variant-numeric:tabular-nums; white-space:nowrap; }
-    .mrow .nm { min-width:0; overflow-wrap:anywhere; }
     .munk { color:var(--faint); }
-    .mkind { text-transform:capitalize; margin:10px 0 2px; color:var(--dim); font-size:.8rem; font-weight:700; }
-    .mflow .inc { fill:var(--busy); } .mflow .spd { fill:var(--alert); }
+    .mflow .inc { fill:var(--busy); } .mflow .spd { fill:var(--dim); }
     .mflow text { fill:var(--faint); font-size:10px; text-anchor:middle; }
     .mkey { display:flex; gap:14px; color:var(--dim); font-size:.8rem; }
     .mkey i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; }
     .mcat { padding:6px 0; border-top:1px solid var(--line); }
     .mcat:first-of-type { border-top:0; }
-    .mbar { height:6px; background:var(--sunk); border-radius:3px; margin-top:4px; }
-    .mbar i { display:block; height:100%; background:var(--dim); border-radius:3px; }`;
+    .mbar { margin-top:4px; }`;
   document.head.appendChild(css);
 
   const DASH = '–';
@@ -44,7 +38,7 @@
   function fresh(f) {
     if (!f.configured) return '';
     if (f.error) return `<p class="mfresh"><span class="needs">Source not answering: ${esc(f.error)}</span></p>`;
-    return `<p class="mfresh">${f.demo ? '<span class="mdemo">DEMO</span> <span>Demo data, made up</span>'
+    return `<p class="mfresh">${f.demo ? '<span class="chip mdemo">DEMO</span> <span>Demo data, made up</span>'
       : `<span>${esc(f.source || 'source')}</span>`}
       <span>${f.as_of ? 'as of ' + esc(String(f.as_of).slice(0, 16).replace('T', ' ')) : 'age unknown'}</span></p>`;
   }
@@ -67,8 +61,8 @@
       const rows = list.filter(a => a.kind === k);
       if (!rows.length) return '';
       const owed = k === 'credit' || k === 'loan';
-      return `<div class="mkind">${esc(k)}${owed ? ' (owed)' : ''}</div>` + rows.map(a =>
-        `<div class="mrow"><span class="nm">${text(a.name)}</span><span class="amt">${money(a.balance, a.currency)}</span></div>`).join('');
+      return `<div class="sec-head mkind">${esc(k)}${owed ? ' (owed)' : ''}</div>` + rows.map(a =>
+        `<div class="row mrow"><span class="body nm">${text(a.name)}</span><span class="trail amt">${money(a.balance, a.currency)}</span></div>`).join('');
     }).join('');
   }
 
@@ -86,20 +80,20 @@
         + `<text x="${cx.toFixed(1)}" y="${H - 6}">${esc(String(r.month).slice(2))}</text>`;
     }).join('');
     return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Income and spending by month">${g}</svg>
-      <div class="mkey"><span><i style="background:var(--busy)"></i>Income</span><span><i style="background:var(--alert)"></i>Spending</span></div>`;
+      <div class="mkey"><span><i style="background:var(--busy)"></i>Income</span><span><i style="background:var(--dim)"></i>Spending</span></div>`;
   }
 
   function cats(rows) {
     if (!rows || !rows.length) return '<p class="faint">Nothing spent yet this month.</p>';
     const hi = Math.max(1, ...rows.map(r => r.amount).filter(num));
-    return rows.map(r => `<div class="mcat"><div class="mrow" style="border:0;padding:0"><span class="nm">${text(r.category)}</span>
-      <span class="amt">${money(r.amount, 'USD')}</span></div>
-      <div class="mbar"><i style="width:${num(r.amount) ? Math.round(r.amount / hi * 100) : 0}%"></i></div></div>`).join('');
+    return rows.map(r => `<div class="mcat"><div class="row mrow" style="border:0;padding:0"><span class="body nm">${text(r.category)}</span>
+      <span class="trail amt">${money(r.amount, 'USD')}</span></div>
+      <div class="meter mbar"><i style="width:${num(r.amount) ? Math.round(r.amount / hi * 100) : 0}%"></i></div></div>`).join('');
   }
 
-  const every = rows => rows.map(r => `<div class="mrow"><span class="nm">${text(r.name)}
+  const every = rows => rows.map(r => `<div class="row mrow"><span class="body nm">${text(r.name)}
       <span class="faint">${r.every ? esc(r.every) + ', next ' : ''}${day(r.next_date || r.date)}</span></span>
-      <span class="amt">${money(r.amount, 'USD')}</span></div>`).join('');
+      <span class="trail amt">${money(r.amount, 'USD')}</span></div>`).join('');
   const list = (rows, none) => rows && rows.length ? every(rows) : `<p class="faint">${none}</p>`;
 
   const card = (title, body) => `<article class="card"><h3>${title}</h3>${body}</article>`;
