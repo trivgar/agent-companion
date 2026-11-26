@@ -103,7 +103,38 @@
     ink.classList.add('on');
     cur.scrollIntoView({block: 'nearest', inline: 'nearest'});
   }
+  function closeSheet() {
+    const cur = current();
+    delete document.documentElement.dataset.sheet;
+    for (const b of document.querySelectorAll('.sheet-back')) b.remove();
+    for (const s of document.querySelectorAll('#views > section.sheet')) {
+      s.classList.remove('sheet');
+      for (const c of s.querySelectorAll('.sheet-close')) c.remove();
+      s.hidden = s.dataset.id !== cur;
+    }
+  }
+  function sheet(id) {
+    const sec = document.querySelector(`#views > section[data-id="${id}"]`);
+    if (!sec) return;
+    closeSheet();
+    const back = document.createElement('div');
+    back.className = 'sheet-back';
+    back.addEventListener('click', closeSheet);
+    document.getElementById('views').appendChild(back);
+    sec.classList.add('sheet');
+    sec.hidden = false;
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'sheet-close';
+    close.setAttribute('aria-label', 'Close');
+    close.textContent = '\u00d7';
+    close.addEventListener('click', e => { e.stopPropagation(); closeSheet(); });
+    sec.prepend(close);
+    document.documentElement.dataset.sheet = id;
+    refresh(id);
+  }
   function show(id) {
+    closeSheet();
     for (const s of document.querySelectorAll('#views > section')) s.hidden = s.dataset.id !== id;
     for (const b of document.querySelectorAll('.navwrap button[data-id]')) b.setAttribute('aria-current', String(b.dataset.id === id));
     document.getElementById('morelink').classList.toggle('on',
@@ -120,8 +151,15 @@
     if (p && p.refresh) { try { await p.refresh(); } catch (e) { console.warn(id, e); } }
   }
   function current() {
-    const s = document.querySelector('#views > section:not([hidden])');
+    const s = document.querySelector('#views > section:not([hidden]):not(.sheet)');
     return s ? s.dataset.id : '';
+  }
+  function refreshVisible() {
+    if (document.hidden) return;
+    const cur = current();
+    if (cur) refresh(cur);
+    const open = document.documentElement.dataset.sheet;
+    if (open && open !== cur) refresh(open);
   }
   function register(id, part) {
     parts[id] = part;
@@ -129,7 +167,7 @@
     if (sec && part.mount) part.mount(sec);
     refresh(id);
   }
-  window.CC = {register, get, post, fetchAuthed, fetchWrite, esc, badge, show, key: () => key};
+  window.CC = {register, get, post, fetchAuthed, fetchWrite, esc, badge, show, sheet, closeSheet, key: () => key};
 
   async function restartNotice() {
     try {
@@ -174,7 +212,7 @@
     bar.addEventListener('click', pick);
     more.addEventListener('click', e => { e.stopPropagation(); openMore(bar.hidden); });
     document.addEventListener('click', e => { if (!bar.hidden && !e.target.closest('#morebar')) openMore(false); });
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') openMore(false); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') { openMore(false); closeSheet(); } });
     window.addEventListener('resize', moveInk);
     const want = new URL(location.href).searchParams.get('view');
     show(order.includes(want) ? want : order[0] || '');
@@ -183,8 +221,8 @@
       s.src = `/static/${encodeURIComponent(f.id)}.js`;
       document.body.appendChild(s);
     }
-    setInterval(() => { if (!document.hidden) refresh(current()); }, 5000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(current()); });
+    setInterval(refreshVisible, 5000);
+    document.addEventListener('visibilitychange', refreshVisible);
   }
   boot();
 })();

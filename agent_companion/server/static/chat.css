@@ -1,0 +1,24 @@
+/* The sheet and the chat view. A sheet sits over the current view without
+   unmounting it; the tokens and the session's hue (--h) carry the colour. */
+html[data-sheet] { overflow:hidden; }
+
+.sheet-back { position:fixed; inset:0; z-index:30; background:rgba(0,0,0,.38); }
+
+.sheet { position:fixed; left:0; right:0; bottom:0; top:max(48px, 6dvh); z-index:31;
+  max-width:760px; margin:0 auto; padding:0 12px 12px;
+  background:var(--raised); border:1px solid var(--line-strong); border-bottom:0;
+  border-radius:14px 14px 0 0; box-shadow:0 -8px 30px rgba(0,0,0,.25);
+  overflow-y:auto; overscroll-behavior:contain; }
+.sheet::before { content:""; display:block; width:38px; height:4px; margin:8px auto 4px;
+  border-radius:2px; background:var(--line-strong); }
+
+@media (prefers-reduced-motion:no-preference) {
+  .sheet { animation:sheet-in .28s var(--ease-out) both; }
+}
+@keyframes sheet-in { from { opacity:0; transform:translateY(12px); } }
+
+.sheet-close { position:absolute; top:6px; right:8px; z-index:2;
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:44px; min-height:44px; padding:0 10px; border:0; border-radius:8px;
+  background:none; color:var(--dim); font:inherit; font-size:1.25rem; line-height:1; cursor:pointer; }
+.sheet-close:hover, .sheet-close:focus-visible { color:var(--fg); background:var(--sunk); }
