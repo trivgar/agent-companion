@@ -145,10 +145,10 @@ def test_six_items_sit_in_the_nav_and_the_rest_under_more(open_page):
     assert ids(page, "#morebar button[data-id]") == MORE_IDS
 
 
-def test_few_features_need_no_menu(open_page):
+def test_few_features_all_sit_in_the_nav(open_page):
     page = open_page(feats=[{"id": "sessions", "title": "Sessions"}, {"id": "pages", "title": "Pages"}])
     assert ids(page, "#nav button[data-id]") == ["sessions", "pages"]
-    assert page.locator("#morelink").is_hidden()
+    assert ids(page, "#morebar button[data-id]") == []
 
 
 def test_nav_items_are_text_and_tall_enough_to_tap(open_page):
@@ -247,3 +247,37 @@ def test_the_strip_escapes_what_the_server_says(open_page):
     page.wait_for_function("document.getElementById('strip').textContent.includes('<img')")
     assert page.locator("#strip img").count() == 0
     assert page.evaluate("window.__hit") is None
+
+
+def test_the_switch_stops_motion_and_is_remembered(open_page, base_url):
+    page = open_page()
+    assert page.evaluate("document.documentElement.hasAttribute('data-still')") is False
+    page.click('#nav button[data-id="chat"]')
+    assert css(page, "#nav .ink", "transitionDuration") != "0s"
+    page.evaluate("CCStill.set(true)")
+    assert page.evaluate("document.documentElement.hasAttribute('data-still')") is True
+    assert css(page, "#nav .ink", "transitionDuration") == "0s"
+    page.goto(f"{base_url}/")
+    page.wait_for_selector("#nav button[data-id]")
+    assert page.evaluate("document.documentElement.hasAttribute('data-still')") is True
+    assert page.evaluate("CCStill.get()") is True
+
+
+def test_the_menu_carries_the_switch_and_says_its_state(open_page):
+    page = open_page()
+    page.click("#morelink")
+    toggle = page.locator("#still-toggle")
+    assert toggle.inner_text().strip().lower() == "animations: on"
+    assert toggle.get_attribute("aria-checked") == "true"
+    toggle.click()
+    assert toggle.inner_text().strip().lower() == "animations: off"
+    assert toggle.get_attribute("aria-checked") == "false"
+    assert page.locator("#morebar").is_visible()
+    assert page.evaluate("CCStill.get()") is True
+
+
+def test_the_switch_alone_is_enough_to_show_more(open_page):
+    page = open_page(feats=[{"id": "sessions", "title": "Sessions"}])
+    assert page.locator("#morelink").is_visible()
+    page.click("#morelink")
+    assert page.locator("#still-toggle").is_visible()

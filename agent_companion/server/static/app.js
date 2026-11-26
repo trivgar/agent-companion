@@ -157,8 +157,18 @@
       views.insertAdjacentHTML('beforeend', `<section data-id="${esc(f.id)}" hidden></section>`);
     }
     nav.innerHTML = first.map(item).join('');
-    bar.innerHTML = rest.map(item).join('');
-    more.hidden = !bar.children.length;
+    // The menu always holds the animations switch, so "more" is always there.
+    bar.innerHTML = rest.map(item).join('') + (rest.length ? '<hr>' : '') +
+      '<button type="button" id="still-toggle" role="menuitemcheckbox"></button>';
+    const still = document.getElementById('still-toggle');
+    const drawStill = () => {
+      const off = window.CCStill.get();
+      still.textContent = `animations: ${off ? 'off' : 'on'}`;
+      still.setAttribute('aria-checked', String(!off));
+    };
+    drawStill();
+    still.addEventListener('click', e => { e.stopPropagation(); window.CCStill.set(!window.CCStill.get()); drawStill(); });
+    more.hidden = false;
     const pick = e => { const b = e.target.closest('button[data-id]'); if (b) show(b.dataset.id); };
     nav.addEventListener('click', pick);
     bar.addEventListener('click', pick);
