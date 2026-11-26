@@ -315,3 +315,16 @@ def test_the_toggle_is_tall_enough_to_tap_and_names_its_session(open_page):
     assert page.get_attribute(f"{card('api')} .scard-main", "aria-expanded") is None
 
 
+def test_pictures_for_a_person_to_read(open_page):
+    out = os.environ.get("SHEET_SHOTS")
+    if not out:
+        pytest.skip("set SHEET_SHOTS=<folder> to write sheet-dark.png and sheet-light.png")
+    for scheme in ("dark", "light"):
+        page = open_page(scheme)
+        roboto(page)
+        page.click(f"{card('api')} .scard-main")
+        page.wait_for_selector("#chat-log .msg")
+        page.screenshot(path=os.path.join(out, f"sheet-{scheme}.png"))
+
+
+
