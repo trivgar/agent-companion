@@ -48,6 +48,13 @@
 .scard.idle .said { color:var(--dim); }
 .said .when { color:var(--faint); font-size:.72rem; }
 
+.scard-ask { padding:6px 9px 8px 56px; border-top:1px solid var(--tint-edge); }
+.scard-ask .ask-from { margin:0 0 2px; font-size:.76rem; color:var(--dim); }
+.scard-ask .ask-what { margin:0 0 6px; font-size:.82rem; line-height:1.35; overflow-wrap:anywhere; word-break:break-word; }
+.scard-ask code { font:.78rem ui-monospace, monospace; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; }
+.scard-ask .ask-btns { display:flex; flex-wrap:wrap; gap:6px; }
+.scard-ask .err { margin:6px 0 0; }
+
 .scard-more { padding:0 9px 8px 56px; }
 .scard .meta { display:flex; gap:8px; flex-wrap:wrap; row-gap:4px; align-items:baseline; color:var(--dim);
   font-size:.72rem; font-variant-numeric:tabular-nums; line-height:1.4; }

@@ -11,6 +11,7 @@
   const RESULT_MS = 6000;
   const arms = new Map();
   const results = new Map();
+  const askErrors = new Map();
   const locallySeen = new Map();
   let rowsOnPage = [];
   let sessionsEl = null;
@@ -89,8 +90,10 @@
   function ctx(r) {
     const name = r.speaker || r.name || r.project || 'session';
     const key = cardKey(r);
+    const askId = r.ask && r.ask.id ? String(r.ask.id) : '';
     return {key, name, hue: identity.hue(name), open: openCards.has(key), unread: isUnread(r),
       actions: actionRow(r), result: actionResult(r), jobs: backgroundJobs(r), cache: cacheChip(r.cache),
+      askError: askId ? (askErrors.get(askId) || '') : '',
       ago, money, short};
   }
 
@@ -164,6 +167,35 @@
 
   async function act(event) {
     if (toggleCard(event)) return;
+    const askAll = event.target.closest('[data-ask-all], [data-ask-answer]');
+    if (askAll && sessionsEl && sessionsEl.contains(askAll)) {
+      CC.show('asks');
+      return;
+    }
+    const askChat = event.target.closest('[data-ask-chat]');
+    if (askChat && sessionsEl && sessionsEl.contains(askChat)) {
+      const cardEl = askChat.closest('.scard');
+      const row = cardEl && rowsOnPage.find(item => cardKey(item) === cardEl.dataset.cardKey);
+      if (window.CCChat && row) window.CCChat.open(row.speaker || row.name || row.project || 'session');
+      return;
+    }
+    const decide = event.target.closest('[data-ask-decide]');
+    if (decide && sessionsEl && sessionsEl.contains(decide)) {
+      const askEl = decide.closest('[data-ask]');
+      const id = askEl ? askEl.dataset.ask : '';
+      if (!id) return;
+      askErrors.delete(id);
+      renderCards();
+      try {
+        const result = await CC.post(`/api/asks/${encodeURIComponent(id)}/decide`, {decision: decide.dataset.askDecide});
+        if (result && result.ok === false) throw new Error(result.detail || 'refused');
+        await refresh();
+      } catch (error) {
+        askErrors.set(id, `Not sent: ${error.message}`);
+        renderCards();
+      }
+      return;
+    }
     const restore = event.target.closest('[data-restore-sessions]');
     if (restore && sessionsEl && sessionsEl.contains(restore) && !restoreBusy) {
       restoreBusy = true;
