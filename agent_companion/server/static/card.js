@@ -54,7 +54,7 @@
         row.branch ? `<span class="brchip">${esc(row.branch)}</span>` : '',
         `<span class="mdl">${esc(ctx.short(row.model))}</span>`,
         `<span>${esc(ctx.money(row.cost_usd))}</span>`,
-        `<span>${esc(state)}${row.last_activity == null ? '' : ` · wrote ${esc(ctx.ago(row.last_activity))}`}</span>`,
+        `<span>${esc(state)}${row.last_activity == null ? '' : ` · ${esc(ctx.ago(row.last_activity))}`}</span>`,
         pct >= 70 ? `<span class="ctx">context ${esc(Math.round(pct))}%</span>` : '',
         ctx.cache,
       ].filter(Boolean).join('');
