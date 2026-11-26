@@ -128,3 +128,26 @@ def test_an_open_page_keeps_its_place_through_the_shells_refresh(tmp_path, monke
         assert page.locator(".pg-delete").inner_text() == "Delete again"
         assert page.get_attribute(".pg-frame", "data-mine") == "1"
         assert frame.evaluate("() => window.scrollY") == 1200
+
+
+def test_pictures_for_a_person_to_read(tmp_path, monkeypatch):
+    import base64
+    import os
+    import pathlib
+    out = os.environ.get("LOOK_SHOTS")
+    if not out:
+        pytest.skip("set LOOK_SHOTS=<folder> to write pages-dark.png and pages-light.png")
+    pathlib.Path(out).mkdir(parents=True, exist_ok=True)
+    font = (pathlib.Path(__file__).resolve().parent / "fixtures" / "Roboto-Regular.ttf").read_bytes()
+    with _dashboard(tmp_path, monkeypatch, "<h1>Published page</h1>", "Quarterly benchmark report") as (page, address, _):
+        browser = page.context.browser
+        for scheme in ("dark", "light"):
+            pg = browser.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme).new_page()
+            pg.add_init_script(f"localStorage.setItem('cc-owner-key', '{OWNER}')")
+            pg.goto(f"{address}/?view=pages")
+            pg.wait_for_selector(".pg-card")
+            pg.add_style_tag(content="@font-face{font-family:PhoneRoboto;src:url(data:font/ttf;base64,"
+                             + base64.b64encode(font).decode() + ")}"
+                             "body{font-family:PhoneRoboto,sans-serif !important}")
+            pg.evaluate("document.fonts.ready")
+            pg.screenshot(path=os.path.join(out, f"pages-{scheme}.png"))

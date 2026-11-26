@@ -62,3 +62,31 @@ def test_machine_card_fits_a_390px_page_and_explains_missing_readings(base_url):
         assert "safe-long-command-name-that-must-not-widen-the-card" in text
         assert page.locator(".machine b").count() == 0
         browser.close()
+
+
+def test_pictures_for_a_person_to_read(base_url):
+    import base64
+    import os
+    import pathlib
+    out = os.environ.get("LOOK_SHOTS")
+    if not out:
+        pytest.skip("set LOOK_SHOTS=<folder> to write health-dark.png and health-light.png")
+    pathlib.Path(out).mkdir(parents=True, exist_ok=True)
+    font = (pathlib.Path(__file__).resolve().parent / "fixtures" / "Roboto-Regular.ttf").read_bytes()
+    with sync_api.sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as exc:
+            pytest.skip(f"chromium unavailable: {exc}")
+        for scheme in ("dark", "light"):
+            page = browser.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme).new_page()
+            page.route("**/api/health", lambda route: route.fulfill(json=HEALTH))
+            page.add_init_script(f"localStorage.setItem('cc-owner-key', '{OWNER}')")
+            page.goto(f"{base_url}/?view=health")
+            page.wait_for_selector(".machine")
+            page.add_style_tag(content="@font-face{font-family:PhoneRoboto;src:url(data:font/ttf;base64,"
+                               + base64.b64encode(font).decode() + ")}"
+                               "body{font-family:PhoneRoboto,sans-serif !important}")
+            page.evaluate("document.fonts.ready")
+            page.screenshot(path=os.path.join(out, f"health-{scheme}.png"))
+        browser.close()

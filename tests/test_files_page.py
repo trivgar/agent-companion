@@ -119,3 +119,40 @@ def test_an_image_opens_read_only_with_the_key_in_a_header(page):
     assert page.locator(".files textarea").count() == 0 and page.get_by_role("button", name="Save").count() == 0
     url, key = seen["raw"][0]
     assert key == OWNER and "k=" not in url
+
+
+def test_pictures_for_a_person_to_read(base_url):
+    import base64
+    import pathlib
+    out = os.environ.get("LOOK_SHOTS")
+    if not out:
+        pytest.skip("set LOOK_SHOTS=<folder> to write files-dark.png and files-light.png")
+    pathlib.Path(out).mkdir(parents=True, exist_ok=True)
+    font = (pathlib.Path(__file__).resolve().parent / "fixtures" / "Roboto-Regular.ttf").read_bytes()
+    with sync_api.sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as exc:
+            pytest.skip(f"chromium unavailable: {exc}")
+        for scheme in ("dark", "light"):
+            pg = browser.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme).new_page()
+
+            def files_api(route):
+                url = urlparse(route.request.url)
+                q = {k: v[0] for k, v in parse_qs(url.query).items()}
+                if url.path.endswith("/tree"):
+                    route.fulfill(json={"ok": True, "checkout": q["checkout"], "branch": "main", "folder": q.get("path", ""),
+                                        **TREES[q.get("path", "")], "commit": None, "count": 3, "readme": "", "readme_text": ""})
+                else:
+                    route.fulfill(json={"ok": True, "repos": REPOS, "agents": {}})
+
+            pg.route("**/api/files**", files_api)
+            pg.add_init_script(f"localStorage.setItem('cc-owner-key', '{OWNER}')")
+            pg.goto(f"{base_url}/")
+            pg.wait_for_selector(".files .tree")
+            pg.add_style_tag(content="@font-face{font-family:PhoneRoboto;src:url(data:font/ttf;base64,"
+                             + base64.b64encode(font).decode() + ")}"
+                             "body{font-family:PhoneRoboto,sans-serif !important}")
+            pg.evaluate("document.fonts.ready")
+            pg.screenshot(path=os.path.join(out, f"files-{scheme}.png"))
+        browser.close()

@@ -237,3 +237,30 @@ def test_pairing_in_the_browser_stores_a_key_that_works(base, monkeypatch, tmp_p
         assert key and len(key) == 64 and auth.is_owner_key(key)
         assert "code=" not in pg.url
         b.close()
+
+
+def test_pictures_for_a_person_to_read(base):
+    import base64
+    out = os.environ.get("LOOK_SHOTS")
+    if not out:
+        pytest.skip("set LOOK_SHOTS=<folder> to write asks-dark.png and asks-light.png")
+    Path(out).mkdir(parents=True, exist_ok=True)
+    font = (Path(__file__).resolve().parent / "fixtures" / "Roboto-Regular.ttf").read_bytes()
+    url, _ = base
+    asks.create("Ada", "p", "s1", "Bash", {"command": "pytest -q"})
+    with sync_api.sync_playwright() as p:
+        try:
+            b = p.chromium.launch()
+        except Exception as exc:
+            pytest.skip(f"chromium unavailable: {exc}")
+        for scheme in ("dark", "light"):
+            pg = b.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme).new_page()
+            pg.add_init_script(f"localStorage.setItem('cc-owner-key', '{OWNER}')")
+            pg.goto(f"{url}/?view=asks")
+            pg.wait_for_selector(".card[data-ask]")
+            pg.add_style_tag(content="@font-face{font-family:PhoneRoboto;src:url(data:font/ttf;base64,"
+                             + base64.b64encode(font).decode() + ")}"
+                             "body{font-family:PhoneRoboto,sans-serif !important}")
+            pg.evaluate("document.fonts.ready")
+            pg.screenshot(path=os.path.join(out, f"asks-{scheme}.png"))
+        b.close()
