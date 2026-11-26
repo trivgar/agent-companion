@@ -57,3 +57,11 @@ nav .ink.on { opacity:1 }
 #morebar button:hover, #morebar button:focus-visible { background:var(--sunk); color:var(--fg); }
 #morebar button[aria-current="true"] { color:var(--fg); font-weight:600; }
 #morebar hr { width:100%; margin:.25rem 0; border:0; border-top:1px solid var(--line); }
+
+/* On a phone six words and their counts must fit without a cut word: the gaps
+   give way, the words and the 44px height do not. */
+@media (max-width:480px) {
+  nav { gap:9px; }
+  #morelink { margin-left:9px; }
+  nav button::before, #morelink::before { left:-4px; right:-4px; }
+}
