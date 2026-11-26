@@ -131,7 +131,7 @@
     close.addEventListener('click', e => { e.stopPropagation(); closeSheet(); });
     sec.prepend(close);
     document.documentElement.dataset.sheet = id;
-    refresh(id);
+    return refresh(id);
   }
   function show(id) {
     closeSheet();

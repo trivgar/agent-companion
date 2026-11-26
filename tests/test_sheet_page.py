@@ -106,8 +106,13 @@ def css(page, selector, prop):
 
 
 def box(page, selector):
-    return page.eval_on_selector(selector, "e => { const r = e.getBoundingClientRect(); "
-                                 "return {x: r.x, y: r.y, w: r.width, h: r.height, top: r.top, bottom: r.bottom} }")
+    return page.eval_on_selector(
+        selector,
+        "async e => { const s = e.closest('.sheet'); "
+        "if (s) await Promise.all(s.getAnimations().map(a => a.finished)); "
+        "const r = e.getBoundingClientRect(); "
+        "return {x: r.x, y: r.y, w: r.width, h: r.height, top: r.top, bottom: r.bottom} }",
+    )
 
 
 # Task 1: the sheet in the shell
@@ -178,3 +183,97 @@ def test_the_close_button_is_tall_enough_to_tap(open_page):
     page.evaluate("CC.sheet('chat')")
     b = box(page, "button.sheet-close")
     assert b["h"] >= 44 and b["w"] >= 44
+
+
+# Task 2: chat in the sheet
+
+
+def test_chat_open_picks_the_session_and_shows_its_window(open_page):
+    page = open_page()
+    chats = []
+    page.on("request", lambda r: chats.append(r.url) if "/api/cave/chat/" in r.url else None)
+    page.evaluate("CCChat.open('api')")
+    page.wait_for_selector("#chat-log .msg")
+    assert page.evaluate("document.documentElement.dataset.sheet") == "chat"
+    assert page.is_checked("#chat-win")
+    assert any(u.endswith("/api/cave/chat/api") for u in chats)
+    assert page.locator("#chat-log .msg").count() == 2
+    assert "Move the e2e job" in page.inner_text("#chat-log")
+    assert "Two jobs are green" in page.inner_text("#chat-log")
+
+
+def test_the_header_shows_the_figure_in_its_live_state_and_the_name(open_page):
+    page = open_page()
+    page.evaluate("CCChat.open('api')")
+    page.wait_for_selector('#chat-title .spr[data-st="work"]')
+    size = box(page, "#chat-title .spr .identity-sprite")
+    assert (size["w"], size["h"]) == (36, 36)
+    text = page.inner_text("#chat-title")
+    assert "api" in text and "working" in text
+
+
+def test_the_picker_is_hidden_in_a_sheet_and_back_in_the_tab(open_page):
+    page = open_page()
+    page.evaluate("CCChat.open('api')")
+    page.wait_for_selector("#chat-log .msg")
+    assert page.locator("#chat-to").is_hidden()
+    assert page.locator('label[for="chat-to"]').is_hidden()
+    page.evaluate("CC.show('chat')")
+    assert page.locator("#chat-to").is_visible()
+    assert page.locator('label[for="chat-to"]').is_visible()
+
+
+def test_his_messages_sit_right_and_the_sessions_carry_its_hue(open_page):
+    page = open_page()
+    page.evaluate("CCChat.open('api')")
+    page.wait_for_selector("#chat-log .msg.me")
+    assert css(page, "#chat-log .msg.me", "alignSelf") == "flex-end"
+    assert css(page, "#chat-log .msg.agent", "borderLeftWidth") == "2px"
+    assert css(page, "#chat-log .msg.agent", "borderTopWidth") == "0px"
+
+
+def test_send_from_the_sheet_posts_to_that_session(open_page):
+    page = open_page()
+    posts = []
+    page.route("**/api/cave/send", lambda r: (posts.append(r.request.post_data_json), r.fulfill(json={"ok": True})))
+    page.evaluate("CCChat.open('api')")
+    page.wait_for_selector("#chat-log .msg")
+    page.fill("#chat-text", "Open the PR when it is green.")
+    page.click('#chat-send button[type="submit"]')
+    page.wait_for_function("document.querySelector('#chat-text').value === ''")
+    assert posts == [{"to": "api", "text": "Open the PR when it is green."}]
+
+
+def test_a_long_log_scrolls_inside_the_sheet_and_the_box_stays_in_reach(open_page):
+    many = [{"role": "me" if i % 2 == 0 else "agent", "at": 1700000000 + i,
+             "to": "api", "from": "api", "text": f"Message number {i} in a long log."} for i in range(80)]
+    page = open_page(messages=many)
+    page.evaluate("CCChat.open('api')")
+    page.wait_for_function("document.querySelectorAll('#chat-log .msg').length === 80")
+    sheet_scroll = page.eval_on_selector('#views > section[data-id="chat"]',
+                                         "e => ({sh: e.scrollHeight, ch: e.clientHeight})")
+    assert sheet_scroll["sh"] > sheet_scroll["ch"]
+    assert page.evaluate("window.scrollY") == 0
+    send_box = box(page, "#chat-send")
+    assert 0 <= send_box["top"] and send_box["bottom"] <= 844
+
+
+def test_an_ask_stays_above_a_long_log(open_page):
+    many = [{"role": "agent", "at": 1700000000 + i, "from": "api",
+             "text": f"Line {i} of the transcript."} for i in range(80)]
+    asks = [{"id": "a1", "tool": "Bash", "what": "npm run migrate"}]
+    page = open_page(messages=many, asks=asks)
+    page.evaluate("CCChat.open('api')")
+    page.wait_for_selector("#chat-asks [data-cave-ask]")
+    ask_box = box(page, "#chat-asks")
+    assert 0 <= ask_box["top"] < 844
+
+
+def test_text_is_never_markup(open_page):
+    bad = [{"role": "agent", "at": 1700000000, "from": "api", "text": "<img src=x onerror=window.__hit=1>"}]
+    page = open_page(messages=bad)
+    page.evaluate("CCChat.open('api')")
+    page.wait_for_selector("#chat-log .msg")
+    assert page.locator("#chat-log img").count() == 0
+    assert page.evaluate("window.__hit") is None
+
