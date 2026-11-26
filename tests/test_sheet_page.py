@@ -227,7 +227,15 @@ def test_his_messages_sit_right_and_the_sessions_carry_its_hue(open_page):
     page = open_page()
     page.evaluate("CCChat.open('api')")
     page.wait_for_selector("#chat-log .msg.me")
-    assert css(page, "#chat-log .msg.me", "alignSelf") == "flex-end"
+    # Measured, not read off the keyword: browsers spell the computed value differently.
+    edges = page.evaluate("""() => {
+        const log = document.querySelector('#chat-log').getBoundingClientRect();
+        const me = document.querySelector('#chat-log .msg.me').getBoundingClientRect();
+        const it = document.querySelector('#chat-log .msg.agent').getBoundingClientRect();
+        return {meRight: log.right - me.right, meLeft: me.left - log.left, itLeft: it.left - log.left};
+    }""")
+    assert abs(edges["meRight"]) <= 1 and edges["meLeft"] > 20
+    assert abs(edges["itLeft"]) <= 1
     assert css(page, "#chat-log .msg.agent", "borderLeftWidth") == "2px"
     assert css(page, "#chat-log .msg.agent", "borderTopWidth") == "0px"
 
