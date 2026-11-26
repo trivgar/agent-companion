@@ -420,7 +420,9 @@ def _prepare(page) -> None:
 
 def _shoot(page, path: Path) -> None:
     _prepare(page)
-    page.screenshot(path=str(path), full_page=True)
+    # One phone screen, never the full page: the README sets these side by side,
+    # and pictures of different heights make a ragged row.
+    page.screenshot(path=str(path), full_page=False)
 
 
 def take_pictures(out: Path) -> None:

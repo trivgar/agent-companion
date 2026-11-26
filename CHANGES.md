@@ -3,6 +3,19 @@
 What moved, and whether your settings need anything. Newest first.
 
 ## Unreleased
+- A new look, and nothing to set. The page has a dusk sky in the dark theme,
+  navigation as text with six tabs in the row and the rest under "more", and
+  an animations switch in that menu. Session cards are grouped Needs you,
+  Working and Idle, lead with the last reply, and keep their details behind a
+  toggle; each has a pixel figure in its own colour. A waiting session's
+  request is answered on its card, helpers fold under their agent, and a tap
+  on a card opens its chat as a sheet. Every other tab shares the same cards,
+  buttons and headings. Orange now means only "this needs you": spending bars,
+  demo badges and saved-setting messages no longer use it.
+- `/api/sessions` rows carry a session's pending ask (`ask`), as `/api/asks`
+  already returned it, behind the same key.
+- `examples/readme_pictures.py docs/images` retakes the README's pictures from
+  made-up data.
 - Android app: pages are sealed from the app's native bridge. The app's
   address is now written as a bare origin (a path or query in `url` moves to
   the start path), so Capacitor can restrict its bridge to that origin. The
