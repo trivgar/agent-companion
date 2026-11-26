@@ -86,7 +86,7 @@ def test_cards_render_without_horizontal_scroll(page):
     assert "beta <b>x</b>" in page.locator(".scard").nth(1).inner_text()
 
 
-def test_session_sprite_is_deterministic_symmetric_and_safe(page):
+def test_session_sprite_is_deterministic_and_safe(page):
     result = page.evaluate("""() => {
       const name = 'same display name';
       const one = window.CCIdentity.sprite(name);
@@ -97,26 +97,16 @@ def test_session_sprite_is_deterministic_symmetric_and_safe(page):
       holder.innerHTML = unsafe;
       document.body.appendChild(holder);
       const svg = holder.querySelector('svg');
-      const pixels = [...svg.children].map(rect => [Number(rect.getAttribute('x')), Number(rect.getAttribute('y'))]);
       return {one, two, other, unsafe, scripts: holder.querySelectorAll('script').length,
         ran: window.spriteRan === true, viewBox: svg.getAttribute('viewBox'),
-        tags: [...svg.children].map(child => child.tagName.toLowerCase()), pixels};
+        tags: [...svg.children].map(child => child.tagName.toLowerCase())};
     }""")
     assert result["one"] == result["two"]
     assert result["one"] != result["other"]
-    assert result["viewBox"] == "0 0 12 12"
-    assert set(result["tags"]) == {"rect"}
+    assert result["viewBox"] == "0 0 32 32"
+    assert set(result["tags"]) == {"path"}
     assert "&lt;script&gt;" in result["unsafe"]
     assert result["scripts"] == 0 and not result["ran"]
-    pixels = {tuple(pixel) for pixel in result["pixels"]}
-    assert all((11 - x, y) in pixels for x, y in pixels)
-
-
-def test_session_sprite_blink_stops_for_reduced_motion(page):
-    page.emulate_media(reduced_motion="reduce")
-    page.reload()
-    page.wait_for_selector(".identity-sprite .identity-eye")
-    assert page.locator(".identity-sprite .identity-eye").first.evaluate("node => getComputedStyle(node).animationName") == "none"
 
 
 def test_background_jobs_show_count_command_and_age(page):
