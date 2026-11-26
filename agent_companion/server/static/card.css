@@ -73,6 +73,15 @@
 .scard .actions button.act { font-size:.76rem; color:var(--dim); background:none; border-color:var(--line); border-radius:6px; padding:0 .8rem; }
 .scard .action-result { margin:8px 0 0; color:var(--dim); font-size:.8rem; }
 
+.scard-helpers { padding:4px 9px 6px 56px; border-top:1px solid var(--tint-edge); }
+.scard-helpers-btn { display:inline-flex; align-items:center; min-height:44px; padding:0 10px;
+  border-radius:6px; font-size:.76rem; color:var(--dim); }
+.scard-helper-list { margin-top:4px; }
+.scard-helper { align-items:center; gap:8px; padding:5px 0; font-size:.8rem; }
+.scard-helper .spr { position:relative; left:auto; top:auto; width:24px; height:24px; flex:0 0 24px; }
+.scard-helper .spr .identity-sprite { width:24px; height:24px; }
+.scard-helper .spr .fx { transform:scale(.6); transform-origin:bottom right; }
+
 .sessions-seen-all { margin:0 0 10px; }
 .sessions-seen-all .faint { margin-left:8px; }
 .restore-sessions { margin:0 0 12px; padding:10px; border:1px solid var(--accent); border-radius:8px; }

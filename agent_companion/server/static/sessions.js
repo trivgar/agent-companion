@@ -4,6 +4,7 @@
   const esc = CC.esc;
   const identity = window.CCIdentity;
   const openCards = new Set();
+  const openHelpers = new Set();
   const ago = s => s == null ? '' : s < 60 ? `${Math.round(s)}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`;
   const money = n => '$' + Number(n || 0).toFixed(2);
   const short = m => String(m || '').replace(/^claude-/, '').replace(/-(\d)-(\d)$/, ' $1.$2');
@@ -87,23 +88,42 @@
     return `<div class="bg-jobs"><div>${esc(label)}</div>${lines}</div>`;
   }
 
-  function ctx(r) {
+  function splitHelpers(rows) {
+    const byPid = new Map();
+    for (const r of rows) if (r.pid != null) byPid.set(r.pid, r);
+    const isHelper = r => Boolean(r.child && !r.job && r.root_pid && byPid.has(r.root_pid) && byPid.get(r.root_pid) !== r);
+    const helpersByRoot = new Map();
+    const agents = [];
+    for (const r of rows) {
+      if (isHelper(r)) {
+        if (!helpersByRoot.has(r.root_pid)) helpersByRoot.set(r.root_pid, []);
+        helpersByRoot.get(r.root_pid).push(r);
+      } else {
+        agents.push(r);
+      }
+    }
+    return {agents, helpersByRoot};
+  }
+
+  function ctx(r, helpers) {
     const name = r.speaker || r.name || r.project || 'session';
     const key = cardKey(r);
     const askId = r.ask && r.ask.id ? String(r.ask.id) : '';
     return {key, name, hue: identity.hue(name), open: openCards.has(key), unread: isUnread(r),
       actions: actionRow(r), result: actionResult(r), jobs: backgroundJobs(r), cache: cacheChip(r.cache),
       askError: askId ? (askErrors.get(askId) || '') : '',
+      helpers: helpers || [], helpersOpen: openHelpers.has(key),
       ago, money, short};
   }
 
   const GROUPS = [['needs', 'Needs you'], ['working', 'Working'], ['idle', 'Idle']];
 
   function groupsHtml() {
+    const {agents, helpersByRoot} = splitHelpers(rowsOnPage);
     return GROUPS.map(([id, title]) => {
-      const rows = rowsOnPage.filter(r => CCCard.group(r) === id);
+      const rows = agents.filter(r => CCCard.group(r) === id);
       if (!rows.length) return '';
-      return `<h2 class="grp">${esc(title)} <span class="n">${rows.length}</span></h2>${rows.map(r => CCCard.html(r, ctx(r))).join('')}`;
+      return `<h2 class="grp">${esc(title)} <span class="n">${rows.length}</span></h2>${rows.map(r => CCCard.html(r, ctx(r, helpersByRoot.get(r.pid)))).join('')}`;
     }).join('');
   }
 
@@ -167,6 +187,13 @@
 
   async function act(event) {
     if (toggleCard(event)) return;
+    const helpersBtn = event.target.closest('[data-helpers-toggle]');
+    if (helpersBtn && sessionsEl && sessionsEl.contains(helpersBtn)) {
+      const key = helpersBtn.closest('.scard').dataset.cardKey;
+      if (openHelpers.has(key)) openHelpers.delete(key); else openHelpers.add(key);
+      renderCards();
+      return;
+    }
     const askAll = event.target.closest('[data-ask-all], [data-ask-answer]');
     if (askAll && sessionsEl && sessionsEl.contains(askAll)) {
       CC.show('asks');
@@ -319,7 +346,8 @@
       CC.get('/api/health').catch(() => null)]);
     if (usage || health) strip(usage || {}, health);
     restoreState = restore;
-    CC.badge('sessions', rows.filter(r => r.waiting).length);
+    const {agents} = splitHelpers(rows);
+    CC.badge('sessions', agents.filter(r => r.waiting).length);
     rowsOnPage = rows;
     renderCards();
   }

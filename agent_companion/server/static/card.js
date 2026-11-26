@@ -103,10 +103,30 @@
         + '</div>';
     },
 
+    helpers(row, ctx) {
+      const list = ctx.helpers || [];
+      if (!list.length) return '';
+      const count = list.length;
+      const word = `${count} helper${count === 1 ? '' : 's'}`;
+      const open = Boolean(ctx.helpersOpen);
+      const rows = open ? `<div class="scard-helper-list">${list.map(h => {
+        const label = h.label && h.label !== 'subagent' ? h.label : (h.speaker || h.name || h.label || h.project || 'helper');
+        const state = WORDS[stateOf(h)];
+        return `<div class="row scard-helper">${window.CCSprite.html(label, h)}`
+          + `<span class="body">${esc(label)}</span>`
+          + `<span class="chip quiet">${esc(state)}</span>`
+          + `<span class="trail">${esc(ctx.money(h.cost_usd))}</span></div>`;
+      }).join('')}</div>` : '';
+      return `<div class="scard-helpers">`
+        + `<button type="button" class="act chip quiet scard-helpers-btn" data-helpers-toggle aria-expanded="${open ? 'true' : 'false'}">${esc(word)}</button>`
+        + rows
+        + '</div>';
+    },
+
     close() { return '</article>'; },
   };
 
-  const ORDER = ['frame', 'top', 'said', 'ask', 'more', 'close'];
+  const ORDER = ['frame', 'top', 'said', 'ask', 'more', 'helpers', 'close'];
 
   function html(row, ctx) {
     return ORDER.map(part => PARTS[part](row, ctx)).join('');

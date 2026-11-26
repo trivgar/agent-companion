@@ -230,12 +230,104 @@ def test_a_three_hundred_character_command_does_not_scroll_sideways_in_roboto(op
 
 
 def test_every_button_on_the_card_is_at_least_forty_four_pixels_tall(open_page):
-    rows = [row(1, "web", waiting=True,
-                ask={"id": "a1", "tool": "Bash", "what": "pytest -q", "shortened": True})]
+    rows = [
+        row(1, "web", waiting=True,
+            ask={"id": "a1", "tool": "Bash", "what": "pytest -q", "shortened": True}),
+        row(10, "web-h1", status="busy", child=True, parent_pid=1, root_pid=1, label="checking schema"),
+    ]
     page = open_page(rows=rows)
     roboto(page)
     page.click(f"{card('web')} .scard-toggle")
     heights = page.eval_on_selector_all(f"{card('web')} button",
                                         "els => els.map(e => e.getBoundingClientRect().height)")
-    assert len(heights) >= 5
+    assert len(heights) >= 7
     assert all(h >= 44 for h in heights), heights
+
+
+def test_helpers_sit_under_their_agent_toggle_and_survive_a_refresh(open_page):
+    rows = [
+        row(1, "api", status="busy", last_activity=4),
+        row(2, "api-h1", status="busy", child=True, parent_pid=1, root_pid=1,
+            label="reviewing routes", cost_usd=0.45),
+        row(3, "api-h2", status="idle", child=True, parent_pid=1, root_pid=1,
+            label="updating schema", cost_usd=0.20),
+    ]
+    page = open_page(rows=rows)
+    roboto(page)
+    assert page.eval_on_selector_all(".scard h3", "els => els.map(e => e.textContent)") == ["api"]
+    chip = f"{card('api')} button[data-helpers-toggle]"
+    assert page.inner_text(chip).strip() == "2 helpers"
+    assert page.get_attribute(chip, "aria-expanded") == "false"
+    assert box(page, chip)["h"] >= 44
+    assert page.locator(f"{card('api')} .scard-helper").count() == 0
+
+    page.click(chip)
+    assert page.get_attribute(chip, "aria-expanded") == "true"
+    assert page.locator(f"{card('api')} .scard-helper").count() == 2
+    assert page.locator('#views > section.sheet[data-id="chat"]').count() == 0
+    text = page.inner_text(f"{card('api')} .scard-helper-list")
+    assert "reviewing routes" in text and "working" in text and "$0.45" in text
+    assert "updating schema" in text and "idle" in text and "$0.20" in text
+    sprite = box(page, f"{card('api')} .scard-helper .spr .identity-sprite")
+    assert (sprite["w"], sprite["h"]) == (24, 24)
+
+    page.evaluate("CC.show('sessions')")
+    page.wait_for_timeout(300)
+    assert page.get_attribute(chip, "aria-expanded") == "true"
+    assert page.locator(f"{card('api')} .scard-helper").count() == 2
+
+    page.click(chip)
+    assert page.get_attribute(chip, "aria-expanded") == "false"
+    assert page.locator(f"{card('api')} .scard-helper").count() == 0
+
+
+def test_an_orphan_helper_and_a_job_keep_their_own_cards(open_page):
+    rows = [
+        row(1, "api", status="busy"),
+        row(2, "orphan-helper", status="busy", child=True, parent_pid=99, root_pid=99, label="checking logs"),
+        row(3, "nightly-job", status="busy", child=True, job="digest", parent_pid=1, root_pid=1),
+    ]
+    page = open_page(rows=rows)
+    assert page.eval_on_selector_all(".scard h3", "els => els.map(e => e.textContent)") == [
+        "api", "orphan-helper", "nightly-job"
+    ]
+    assert page.locator(f"{card('api')} button[data-helpers-toggle]").count() == 0
+
+
+def test_the_working_groups_count_counts_agents_not_helpers(open_page):
+    rows = [
+        row(1, "api", status="busy"),
+        row(2, "infra", status="busy"),
+        row(3, "api-h1", status="busy", child=True, parent_pid=1, root_pid=1, label="running unit tests"),
+        row(4, "api-h2", status="busy", child=True, parent_pid=1, root_pid=1, label="linting"),
+    ]
+    page = open_page(rows=rows)
+    groups = page.eval_on_selector_all(
+        "h2.grp",
+        "els => els.map(e => e.textContent.toLowerCase().split(/\\s+/).join(' ').trim())",
+    )
+    assert groups == ["working 2"]
+
+
+def test_pictures_for_a_person_to_read(open_page):
+    out = os.environ.get("ASK_SHOTS")
+    if not out:
+        pytest.skip("set ASK_SHOTS=<folder> to write ask-dark.png and ask-light.png")
+    pathlib.Path(out).mkdir(parents=True, exist_ok=True)
+    rows = [
+        row(1, "web", waiting=True, last_reply="Migration script is ready to apply.",
+            ask={"id": "a1", "tool": "Bash", "what": "pytest -q tests/test_migrations.py",
+                 "from": "verifying schema"}),
+        row(2, "api", status="busy", last_activity=4, last_reply="Running integration suite."),
+        row(3, "api-h1", status="busy", child=True, parent_pid=2, root_pid=2,
+            label="reviewing endpoints", cost_usd=0.38),
+        row(4, "api-h2", status="idle", child=True, parent_pid=2, root_pid=2,
+            label="checking types", cost_usd=0.14),
+        row(5, "docs", status="idle", last_activity=2820, last_reply="Draft is in the changelog."),
+    ]
+    for scheme in ("dark", "light"):
+        page = open_page(scheme, rows=rows)
+        roboto(page)
+        page.click(f"{card('api')} button[data-helpers-toggle]")
+        page.wait_for_selector(f"{card('api')} .scard-helper")
+        page.screenshot(path=os.path.join(out, f"ask-{scheme}.png"), full_page=True)
