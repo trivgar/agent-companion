@@ -1,0 +1,71 @@
+/* The sheet and the chat view. A sheet sits over the current view without
+   unmounting it; the tokens and the session's hue (--h) carry the colour. */
+html[data-sheet] { overflow:hidden; }
+
+.sheet-back { position:fixed; inset:0; z-index:30; background:rgba(0,0,0,.38); }
+
+.sheet { position:fixed; left:0; right:0; bottom:0; top:max(48px, 6dvh); z-index:31;
+  max-width:760px; margin:0 auto; padding:0 12px;
+  background:var(--raised); border:1px solid var(--line-strong); border-bottom:0;
+  border-radius:14px 14px 0 0; box-shadow:0 -8px 30px rgba(0,0,0,.25);
+  overflow-y:auto; overscroll-behavior:contain; }
+/* A column, so a short log still leaves the box at the bottom edge. The sheet
+   itself scrolls: nothing in it shrinks. */
+.sheet { display:flex; flex-direction:column; }
+.sheet > * { flex:0 0 auto; }
+.sheet > #chat-log { flex:1 0 auto; }
+.sheet::before { content:""; display:block; width:38px; height:4px; margin:8px auto 4px;
+  border-radius:2px; background:var(--line-strong); }
+
+@media (prefers-reduced-motion:no-preference) {
+  .sheet { animation:sheet-in .28s var(--ease-out) both; }
+}
+@keyframes sheet-in { from { opacity:0; transform:translateY(12px); } }
+
+.sheet-close { position:absolute; top:6px; right:8px; z-index:2;
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:44px; min-height:44px; padding:0 10px; border:0; border-radius:8px;
+  background:none; color:var(--dim); font:inherit; font-size:1.25rem; line-height:1; cursor:pointer; }
+.sheet-close:hover, .sheet-close:focus-visible { color:var(--fg); background:var(--sunk); }
+
+section[data-id="chat"] { --tint-accent:hsl(var(--h,0) 48% 40%); }
+@media (prefers-color-scheme:dark) {
+  section[data-id="chat"] { --tint-accent:hsl(var(--h,0) 60% 66%); }
+}
+
+#chat-title { margin:0 0 8px; }
+#chat-title h2 { align-items:center; display:flex; font-size:1rem; gap:8px; margin:0; min-width:0; overflow-wrap:anywhere; }
+.sheet #chat-title.shead { display:flex; align-items:center; gap:10px; padding:4px 44px 8px 0; margin:0 0 6px; }
+.sheet #chat-title .spr { position:relative; left:auto; top:auto; flex:0 0 36px; width:36px; height:36px; }
+.sheet #chat-title .spr .identity-sprite { width:36px; height:36px; }
+.sheet #chat-title .sub { font-size:.72rem; color:var(--dim); }
+
+#chat-bar { display:flex; gap:8px; align-items:center; margin:0 0 10px; flex-wrap:wrap; }
+#chat-bar select { min-height:44px; font:inherit; color:var(--fg);
+  background:var(--sunk); border:1px solid var(--line); border-radius:8px; padding:0 10px; }
+.sheet label[for="chat-to"], .sheet #chat-to { display:none; }
+/* A sheet always shows the session's whole window: the choice is not offered. */
+.sheet label:has(> #chat-win) { display:none; }
+
+.sheet #chat-asks { position:sticky; top:0; z-index:1; background:var(--raised); }
+
+#chat-log { display:flex; flex-direction:column; gap:10px; margin:0 0 12px; }
+.msg { max-width:86%; font-size:.86rem; line-height:1.4; white-space:pre-wrap; overflow-wrap:anywhere; }
+.msg:not(.me):not(.work):not(.asked):not(.spoke) { border:0; border-left:2px solid var(--tint-accent);
+  padding:1px 0 1px 10px; background:none; border-radius:0; }
+.msg.me { align-self:flex-end; background:var(--sunk); border:0; border-radius:12px 12px 2px 12px; padding:7px 10px; }
+.msg.work { align-self:flex-start; font-size:.72rem; color:var(--dim); border:1px solid var(--line);
+  border-radius:6px; padding:3px 8px; background:none; }
+.msg.asked, .msg.spoke { color:var(--dim); font-size:.85rem; padding:6px 10px;
+  border:1px solid var(--line); border-radius:8px; background:var(--raised); }
+.msg.bad { border:1px solid var(--alert); }
+.msg .by { display:block; color:var(--faint); font-size:.68rem; margin:0 0 2px; }
+
+#chat-send { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.sheet #chat-send { position:sticky; bottom:0; padding:8px 0 12px; background:var(--raised);
+  border-top:1px solid var(--line); }
+#chat-send textarea { flex:1; min-height:44px; resize:vertical; }
+#chat-files { flex-basis:100%; color:var(--dim); font-size:.85rem; }
+#chat-files:empty { display:none; }
+#chat-err { margin:4px 0; }
+#chat-err:empty { display:none; }

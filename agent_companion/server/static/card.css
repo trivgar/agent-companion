@@ -15,8 +15,17 @@
 .scard.idle { background:color-mix(in srgb, var(--tint-bg) 55%, var(--sunk)); filter:saturate(.45); }
 .scard.waiting { border-color:var(--alert); box-shadow:inset 3px 0 0 var(--alert); }
 .scard.open { border-color:var(--line-strong); }
-.scard-main { position:relative; min-height:56px; padding:5px 9px 6px 56px; cursor:pointer; }
+.scard-main { position:relative; min-height:56px; padding:5px 44px 6px 56px; cursor:pointer; }
 .scard-main:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+.scard-toggle { position:absolute; top:0; right:0; width:44px; min-height:56px; padding:0;
+  border:0; background:none; color:var(--dim); font:inherit; cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center; }
+.scard-toggle::before { content:""; width:7px; height:7px;
+  border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor;
+  transform:translateY(-2px) rotate(45deg); }
+.scard.open .scard-toggle::before { transform:translateY(2px) rotate(-135deg); }
+.scard-toggle:hover, .scard-toggle:focus-visible { color:var(--fg); }
+.scard-toggle:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; border-radius:0 .5rem 0 0; }
 .scard .spr { position:absolute; left:8px; top:6px; width:40px; height:40px; }
 .scard.idle .spr .identity-sprite { opacity:.6; }
 

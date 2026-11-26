@@ -47,6 +47,7 @@ change to the design, not a detail.
 | `card.css` | Session groups, the card, its figure slot, badges, details, actions |
 | `card.js` | A card as an ordered list of parts |
 | `sprite.js` | The session figure and its state overlays |
+| `chat.css` | The sheet frame, backdrop, close control, chat header, log, and send box |
 
 ## Cards and sprites
 
@@ -76,6 +77,25 @@ of the name, so two sessions of a near hue still differ.
 after an hour asleep, and a small meter in `--alert` when the context is 85%
 full or more. Waiting wins over working, working over full, full over asleep.
 The working figure bobs, and stops with the animations switch.
+
+## Sheets
+
+A sheet is a second view shown over the current one without unmounting it. The
+view behind stays current in the navigation and in the address, and refreshes
+alongside the open sheet. While a sheet is open the page behind does not
+scroll.
+
+- A sheet sits on `--raised` with a 1px `--line-strong` border, rounded top
+  corners, a grab bar at the top, and its own vertical scroll.
+- It closes on its close button, on a tap on the backdrop, on Escape, or when
+  a view is picked from the navigation.
+- A tap on a session card opens that session's chat in a sheet, with the
+  session's 36px figure in its live state and its state line in the header, and
+  a toggle at the card's right edge opens the card's details.
+- In chat, the owner's messages sit right on `--sunk`; the session's sit as
+  plain text with a 2px left rule in the session's hue; tool work sits as a
+  quiet chip. An ask or terminal choice stays above the log, and the send box
+  is pinned to the bottom.
 
 ## A reading it does not have
 

@@ -38,22 +38,6 @@
     if (armedPicker && !armedPicker.button.contains(event.target)) disarmPicker();
   }, true);
 
-  const css = document.createElement('style');
-  css.textContent = `
-    #chat-title { margin:0 0 8px; } #chat-title h2 { align-items:center; display:flex; font-size:1rem; gap:8px; margin:0; min-width:0; overflow-wrap:anywhere; }
-    #chat-log { display:flex; flex-direction:column; gap:8px; margin:0 0 12px; }
-    .msg { max-width:92%; padding:8px 12px; border-radius:8px; border:1px solid var(--line);
-      background:var(--raised); white-space:pre-wrap; overflow-wrap:anywhere; }
-    .msg.me { align-self:flex-end; background:var(--sunk); border-color:var(--line-strong); }
-    .msg.work, .msg.asked, .msg.spoke { color:var(--dim); font-size:.85rem; }
-    .msg .by { display:block; color:var(--dim); font-size:.8rem; margin:0 0 2px; }
-    .msg.bad { border-color:var(--alert); } #chat-bar { display:flex; gap:8px; align-items:center;
-      margin:0 0 10px; flex-wrap:wrap; } #chat-bar select { min-height:44px; font:inherit; color:var(--fg);
-      background:var(--sunk); border:1px solid var(--line); border-radius:8px; padding:0 10px; }
-    #chat-send { display:flex; gap:8px; flex-wrap:wrap; } #chat-send textarea { flex:1; min-height:44px;
-      resize:vertical; } #chat-files { flex-basis:100%; color:var(--dim); font-size:.85rem; }`;
-  document.head.appendChild(css);
-
   const time = at => new Date(at * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
   const fileNames = m => m.files && m.files.length ? `\nDelivered: ${m.files.map(f => esc(f.name || 'file')).join(', ')}` : '';
   function line(m) {
@@ -118,9 +102,17 @@
   function drawTitle() {
     const title = el.querySelector('#chat-title');
     const target = selectedAgent();
-    if (!target) { title.hidden = true; title.textContent = ''; return; }
+    if (!target) { title.hidden = true; title.className = ''; title.textContent = ''; return; }
     const name = target.name || target.project || 'session';
     title.hidden = false;
+    if (el.classList.contains('sheet')) {
+      const state = target.waiting ? 'waiting' : target.status === 'busy' ? 'working' : 'idle';
+      const sub = [state, target.project].filter(Boolean).map(esc).join(' \u00b7 ');
+      title.className = 'shead';
+      title.innerHTML = `${window.CCSprite.html(name, target)}<div><h2>${esc(name)}</h2><div class="sub">${sub}</div></div>`;
+      return;
+    }
+    title.className = '';
     title.innerHTML = `<h2 class="identity-heading">${identityArt.sprite(name)}<span>Chat with ${esc(name)}</span></h2>`;
   }
 
@@ -280,6 +272,8 @@
     agents = data.agents || [];
     const names = agents.map(a => a.name);
     if (!names.includes(who)) who = names.length === 1 ? names[0] : '';
+    if (who) el.style.setProperty('--h', String(identityArt.hue(who)));
+    else el.style.removeProperty('--h');
     const select = el.querySelector('#chat-to');
     if (document.activeElement !== select) select.innerHTML = `<option value="">${names.length ? 'pick a session' : 'no session reachable'}</option>` +
       agents.map(a => `<option value="${esc(a.name)}"${a.name === who ? ' selected' : ''}>${esc(a.name)}${a.waiting ? ' (waiting)' : ''}${a.project ? ' · ' + esc(a.project) : ''}</option>`).join('');
@@ -297,10 +291,28 @@
         await CC.post(`/api/cave/seen/${encodeURIComponent(who)}`, {});
       } catch (e) { messages = []; el.querySelector('#chat-asks').innerHTML = ''; el.querySelector('#chat-controls').innerHTML = ''; }
     }
-    const atBottom = innerHeight + scrollY >= document.body.scrollHeight - 80;
+    const inSheet = el.classList.contains('sheet');
+    const atBottom = inSheet
+      ? el.clientHeight + el.scrollTop >= el.scrollHeight - 80
+      : innerHeight + scrollY >= document.body.scrollHeight - 80;
     log.innerHTML = messages.length ? messages.map(line).join('') : '<p class="empty">Nothing said yet.</p>';
-    if (atBottom) scrollTo(0, document.body.scrollHeight);
+    if (atBottom) {
+      if (inSheet) el.scrollTo(0, el.scrollHeight);
+      else scrollTo(0, document.body.scrollHeight);
+    }
   }
 
+  function open(name) {
+    who = String(name == null ? '' : name);
+    try { localStorage.setItem('cc-chat-to', who); } catch (x) {}
+    if (el) {
+      if (!el.querySelector('#chat-log')) shell();
+      el.querySelector('#chat-win').checked = true;
+    }
+    return CC.sheet('chat');
+  }
+
+  window.CCChat = {open};
+  if (window.CCSessions) window.CCSessions.render();
   CC.register('chat', {mount: root => { el = root; shell(); }, refresh});
 })();
