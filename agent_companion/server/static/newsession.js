@@ -6,12 +6,11 @@
   const css = document.createElement('style');
   css.textContent = `
     .new-session-backdrop { position:fixed; inset:0; z-index:20; display:flex; align-items:end; background:color-mix(in srgb, var(--fg) 50%, transparent); }
-    .new-session-sheet { width:100%; max-width:760px; margin:0 auto; padding:16px; border-radius:14px 14px 0 0; background:var(--raised); box-shadow:0 -8px 28px color-mix(in srgb, var(--fg) 25%, transparent); }
+    .new-session-sheet { width:100%; max-width:760px; margin:0 auto; padding:16px; border:1px solid var(--line-strong); border-bottom:0; border-radius:14px 14px 0 0; background:var(--raised); box-shadow:0 -8px 28px color-mix(in srgb, var(--fg) 25%, transparent); }
     .new-session-head { display:flex; justify-content:space-between; align-items:center; gap:10px; }
-    .new-session-head h2 { margin:0; font-size:1.1rem; }
+    .new-session-head h2 { margin:0; font-size:1rem; }
     .new-session-form label { display:block; margin:12px 0 0; font-weight:600; }
-    .new-session-form select { width:100%; min-height:44px; margin-top:4px; padding:8px; font:inherit; color:var(--fg); background:var(--sunk); border:1px solid var(--line); border-radius:8px; }
-    .new-session-form textarea { display:block; margin-top:4px; }
+    .new-session-form select, .new-session-form textarea { display:block; width:100%; margin-top:4px; }
     .new-session-result { min-height:1.45em; margin:12px 0; color:var(--dim); overflow-wrap:anywhere; }`;
   document.head.appendChild(css);
 
