@@ -293,3 +293,19 @@ def test_pictures_for_a_person_to_read(open_page):
         page.wait_for_selector("#nav .ink.on")
         page.wait_for_function("document.querySelectorAll('#strip span').length >= 3")
         page.screenshot(path=os.path.join(out, f"shell-{scheme}.png"))
+
+
+def test_six_items_with_their_counts_fit_a_phone_without_a_cut_word(open_page):
+    feats = [{"id": i, "title": t} for i, t in [
+        ("sessions", "Sessions"), ("asks", "Asks"), ("chat", "Chat"), ("mail", "Mail"),
+        ("comms", "Comms"), ("files", "Files"), ("health", "Machine"), ("specs", "Specs")]]
+    page = open_page(feats=feats)
+    roboto(page)
+    page.evaluate("CC.badge('sessions', 1); CC.badge('asks', 1); CC.badge('mail', 2); CC.badge('comms', 1); CC.badge('specs', 1)")
+    edges = page.evaluate("""() => {
+        const nav = document.getElementById('nav').getBoundingClientRect();
+        const last = document.querySelector('#nav button[data-id="files"]').getBoundingClientRect();
+        return {navRight: nav.right, lastRight: last.right};
+    }""")
+    assert edges["lastRight"] <= edges["navRight"] + 0.5, edges
+
