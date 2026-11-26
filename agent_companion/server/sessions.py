@@ -105,7 +105,7 @@ def _git_states_now(git, cwds: list[str]) -> dict:
 
 def _add_card_data(rows: list[dict]) -> None:
     """Put current chat-only facts on the rows without changing their identity."""
-    from . import chat
+    from . import asks, chat
 
     try:
         targets = chat.targets(rows, chat.claude_home() / "sessions")
@@ -127,6 +127,10 @@ def _add_card_data(rows: list[dict]) -> None:
         except Exception:
             row["suggestion"] = None
     bgjobs.annotate(rows)
+    try:
+        asks.attach(rows, asks.pending())
+    except Exception:
+        pass
 
 
 @router.get("/api/usage", dependencies=[Depends(auth.require_token)])

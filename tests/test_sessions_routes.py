@@ -135,3 +135,24 @@ def test_reads_need_the_key(env):
     _, c = env
     for path in ("/api/sessions", "/api/usage", "/api/push/key"):
         assert c.get(path).status_code == 401, path
+
+
+def test_a_pending_ask_rides_on_its_sessions_row_and_on_no_other(env):
+    from agent_companion.server import asks
+
+    _, c = env
+    rows = c.get("/api/sessions", headers=KEY).json()
+    assert all("ask" not in r for r in rows), "nothing is pending yet"
+    target = next(r for r in rows if r["name"] == "web-checkout")
+    made = asks.create("", "web", target["session_id"], "Bash", {"command": "npm run migrate"})
+    rows = c.get("/api/sessions", headers=KEY).json()
+    mine = next(r for r in rows if r["name"] == "web-checkout")
+    assert mine["ask"]["id"] == made["id"]
+    assert mine["ask"]["tool"] == "Bash" and "npm run migrate" in mine["ask"]["what"]
+    assert [r["name"] for r in rows if "ask" in r] == ["web-checkout"]
+
+
+def test_the_sessions_route_needs_the_key_so_an_ask_is_never_read_without_it(env):
+    _, c = env
+    assert c.get("/api/sessions").status_code in (401, 403)
+

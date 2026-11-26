@@ -52,7 +52,8 @@ change to the design, not a detail.
 ## Cards and sprites
 
 **The card** is built by `card.js` from parts in a fixed order: `frame`, `top`,
-`said`, `more`, `close`. A feature that adds to the card adds a part.
+`said`, `ask`, `more`, `helpers`, `close`. A feature that adds to the card adds
+a part.
 
 - Closed, a card shows the figure (40px), the name with its state dot, flags
   (`needs you`, `new`), the project at the right, and the last word in two
@@ -67,6 +68,20 @@ change to the design, not a detail.
   are computed from the session's hue on the card itself.
 - An idle card steps back by saturation, and its figure by opacity. Text
   opacity is never lowered.
+
+**The ask on a card** sits below the last word and outside the main tap area,
+open or closed, whenever the session or one of its helpers has a pending ask. A
+permission request names the helper when it came from one, shows the tool in
+bold and the command in a wrapping code line, and offers `Allow`, `Deny`, and
+`Chat` (with `Allow` disabled and `See it all` opening the Asks tab when the
+request was shortened). A question shows its text and `Answer`, which opens the
+Asks tab.
+
+**Helpers** spawned by an agent that is on the page do not draw cards of their
+own and are not counted in the group headings. Their agent's card carries a
+`N helpers` chip that toggles a list of its helpers, each with a 24px figure,
+its label or name, its state word and its cost. A helper whose agent is absent,
+or a background job, keeps its own card.
 
 **The figure** is one plain 32x32 person drawn as SVG paths. The body and the
 cap take the session's hue, so a pinned colour still applies. Hair (5 colours),
