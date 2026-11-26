@@ -9,6 +9,11 @@ html[data-sheet] { overflow:hidden; }
   background:var(--raised); border:1px solid var(--line-strong); border-bottom:0;
   border-radius:14px 14px 0 0; box-shadow:0 -8px 30px rgba(0,0,0,.25);
   overflow-y:auto; overscroll-behavior:contain; }
+/* A column, so a short log still leaves the box at the bottom edge. The sheet
+   itself scrolls: nothing in it shrinks. */
+.sheet { display:flex; flex-direction:column; }
+.sheet > * { flex:0 0 auto; }
+.sheet > #chat-log { flex:1 0 auto; }
 .sheet::before { content:""; display:block; width:38px; height:4px; margin:8px auto 4px;
   border-radius:2px; background:var(--line-strong); }
 
@@ -39,6 +44,8 @@ section[data-id="chat"] { --tint-accent:hsl(var(--h,0) 48% 40%); }
 #chat-bar select { min-height:44px; font:inherit; color:var(--fg);
   background:var(--sunk); border:1px solid var(--line); border-radius:8px; padding:0 10px; }
 .sheet label[for="chat-to"], .sheet #chat-to { display:none; }
+/* A sheet always shows the session's whole window: the choice is not offered. */
+.sheet label:has(> #chat-win) { display:none; }
 
 .sheet #chat-asks { position:sticky; top:0; z-index:1; background:var(--raised); }
 

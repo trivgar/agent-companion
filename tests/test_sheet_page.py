@@ -324,7 +324,6 @@ def test_pictures_for_a_person_to_read(open_page):
         roboto(page)
         page.click(f"{card('api')} .scard-main")
         page.wait_for_selector("#chat-log .msg")
+        # The sheet fades in: a picture taken mid-arrival shows the list through it.
+        page.evaluate("Promise.all(document.querySelector('.sheet').getAnimations().map(a => a.finished))")
         page.screenshot(path=os.path.join(out, f"sheet-{scheme}.png"))
-
-
-
