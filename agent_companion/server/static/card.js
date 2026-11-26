@@ -26,8 +26,12 @@
       if (ctx.open) classes.push('open');
       if (ctx.unread) classes.push('unread');
       if (row.child) classes.push('child');
+      const chat = Boolean(window.CCChat) && !row.child;
+      const aria = chat
+        ? `aria-label="Chat with ${esc(ctx.name)}"`
+        : `aria-expanded="${ctx.open ? 'true' : 'false'}"`;
       return `<article class="${classes.join(' ')}" data-pid="${esc(row.pid)}" data-card-key="${esc(ctx.key)}" style="--h:${esc(ctx.hue)}">`
-        + `<div class="scard-main" role="button" tabindex="0" aria-expanded="${ctx.open ? 'true' : 'false'}">`
+        + `<div class="scard-main" role="button" tabindex="0" ${aria}>`
         + window.CCSprite.html(ctx.name, row);
     },
 
@@ -47,7 +51,8 @@
     },
 
     more(row, ctx) {
-      if (!ctx.open) return '</div>';
+      const toggle = `<button type="button" class="scard-toggle" aria-expanded="${ctx.open ? 'true' : 'false'}" aria-label="Details for ${esc(ctx.name)}"></button>`;
+      if (!ctx.open) return `</div>${toggle}`;
       const pct = pctOf(row);
       const state = WORDS[stateOf(row)];
       const bits = [
@@ -58,7 +63,7 @@
         pct >= 70 ? `<span class="ctx">context ${esc(Math.round(pct))}%</span>` : '',
         ctx.cache,
       ].filter(Boolean).join('');
-      return '</div><div class="scard-more">'
+      return `</div>${toggle}<div class="scard-more">`
         + `<div class="meta">${bits}</div>`
         + (row.title ? `<div class="dim">${esc(row.title)}</div>` : '')
         + ctx.jobs

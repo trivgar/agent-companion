@@ -135,14 +135,30 @@
     }, RESULT_MS + 50);
   }
 
+  function flipCard(key, focusSelector, restoreFocus) {
+    if (openCards.has(key)) openCards.delete(key); else openCards.add(key);
+    renderCards();
+    if (restoreFocus) {
+      const again = [...sessionsEl.querySelectorAll('.scard')].find(el => el.dataset.cardKey === key);
+      if (again) again.querySelector(focusSelector)?.focus();
+    }
+  }
+
   function toggleCard(event) {
+    const toggle = event.target.closest('.scard-toggle');
+    if (toggle && sessionsEl && sessionsEl.contains(toggle)) {
+      flipCard(toggle.closest('.scard').dataset.cardKey, '.scard-toggle', event.type === 'keydown');
+      return true;
+    }
     const main = event.target.closest('.scard-main');
     if (!main || !sessionsEl || !sessionsEl.contains(main)) return false;
     const key = main.closest('.scard').dataset.cardKey;
-    if (openCards.has(key)) openCards.delete(key); else openCards.add(key);
-    renderCards();
-    const again = [...sessionsEl.querySelectorAll('.scard')].find(el => el.dataset.cardKey === key);
-    if (again && event.type === 'keydown') again.querySelector('.scard-main').focus();
+    const row = rowsOnPage.find(item => cardKey(item) === key);
+    if (window.CCChat && row && !row.child) {
+      window.CCChat.open(row.speaker || row.name || row.project || 'session');
+      return true;
+    }
+    flipCard(key, '.scard-main', event.type === 'keydown');
     return true;
   }
 
@@ -276,6 +292,7 @@
     renderCards();
   }
 
+  window.CCSessions = {render: renderCards};
   CC.register('sessions', {
     mount(el) {
       sessionsEl = el;

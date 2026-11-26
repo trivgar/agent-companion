@@ -313,5 +313,6 @@
   }
 
   window.CCChat = {open};
+  if (window.CCSessions) window.CCSessions.render();
   CC.register('chat', {mount: root => { el = root; shell(); }, refresh});
 })();

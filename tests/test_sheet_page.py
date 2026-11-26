@@ -277,3 +277,41 @@ def test_text_is_never_markup(open_page):
     assert page.locator("#chat-log img").count() == 0
     assert page.evaluate("window.__hit") is None
 
+
+# Task 3: the card opens it
+
+
+def card(name):
+    return f'.scard:has(h3:text-is("{name}"))'
+
+
+def test_a_tap_on_a_card_opens_that_sessions_chat(open_page):
+    page = open_page()
+    page.click(f"{card('web')} .scard-main")
+    page.wait_for_selector('#views > section.sheet[data-id="chat"]')
+    page.wait_for_function("document.getElementById('chat-title').textContent.includes('web')")
+    assert "web" in page.inner_text("#chat-title")
+    assert page.locator(f"{card('web')} .scard-more").count() == 0
+
+
+def test_the_toggle_opens_details_and_not_chat(open_page):
+    page = open_page()
+    toggle = f"{card('api')} .scard-toggle"
+    assert page.get_attribute(toggle, "aria-expanded") == "false"
+    page.click(toggle)
+    assert page.locator(f"{card('api')} .scard-more").count() == 1
+    assert page.get_attribute(toggle, "aria-expanded") == "true"
+    assert page.locator('#views > section.sheet').count() == 0
+
+
+def test_the_toggle_is_tall_enough_to_tap_and_names_its_session(open_page):
+    page = open_page()
+    roboto(page)
+    toggle = f"{card('api')} .scard-toggle"
+    size = box(page, toggle)
+    assert size["w"] >= 44 and size["h"] >= 44
+    assert page.get_attribute(toggle, "aria-label") == "Details for api"
+    assert page.get_attribute(f"{card('api')} .scard-main", "aria-label") == "Chat with api"
+    assert page.get_attribute(f"{card('api')} .scard-main", "aria-expanded") is None
+
+

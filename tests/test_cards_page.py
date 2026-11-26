@@ -292,6 +292,16 @@ def test_the_page_does_not_scroll_sideways_with_long_names_in_roboto(open_page):
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
 
+def test_without_chat_a_tap_still_opens_details(open_page):
+    page = open_page()
+    assert page.evaluate("window.CCChat") is None
+    page.click(f"{card('api')} .scard-main")
+    assert page.locator(f"{card('api')} .scard-more").count() == 1
+    assert page.get_attribute(f"{card('api')} .scard-main", "aria-expanded") == "true"
+    assert page.get_attribute(f"{card('api')} .scard-toggle", "aria-expanded") == "true"
+
+
+
 def test_pictures_for_a_person_to_read(open_page):
     out = os.environ.get("CARD_SHOTS")
     if not out:
