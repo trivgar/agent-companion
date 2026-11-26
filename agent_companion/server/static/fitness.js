@@ -8,19 +8,16 @@
   const {get, esc} = window.CC;
   const css = document.createElement('style');
   css.textContent = `
-    .fit .fsec { background:var(--raised); border:1px solid var(--line); border-radius:8px; padding:12px; margin:0 0 10px; }
-    .fit h3 { margin:0 0 6px; font-size:1rem; }
-    .fit .fbig { font-size:1.6rem; font-weight:700; margin:0; }
-    .fit .fshort.bad { color:var(--alert); } .fit .fshort.good { color:var(--busy); }
+    .fit .fbig { font-size:1.6rem; font-weight:700; font-variant-numeric:tabular-nums; margin:0; }
+    .fit .fshort.bad { color:var(--fg); font-weight:600; } .fit .fshort.good { color:var(--busy); }
     .fit .fline { margin:6px 0; } .fit .fnote, .fit .fd { color:var(--faint); font-size:.8rem; margin:6px 0 0; }
-    .fit .fd.up { color:var(--busy); } .fit .fd.down { color:var(--alert); }
+    .fit .fd.up { color:var(--busy); } .fit .fd.down { color:var(--dim); }
     .fit .favgs { display:flex; gap:12px; flex-wrap:wrap; }
     .fit .favgs > div { flex:1 1 90px; min-width:0; }
-    .fit .fk { display:block; color:var(--dim); font-size:.8rem; } .fit .fv { display:block; font-weight:700; }
+    .fit .fk { display:block; color:var(--dim); font-size:.8rem; } .fit .fv { display:block; font-weight:700; font-variant-numeric:tabular-nums; }
     .fit dl.fstats { display:flex; flex-wrap:wrap; gap:6px 18px; margin:8px 0 0; }
     .fit dl.fstats dt { color:var(--faint); font-size:.75rem; } .fit dl.fstats dd { margin:0; font-weight:600; }
-    .fit .demo { display:inline-block; border:1px solid var(--alert); color:var(--alert); border-radius:6px;
-      padding:0 6px; font-size:.75rem; font-weight:700; letter-spacing:.04em; margin-bottom:8px; }
+    .fit .demo { font-weight:700; letter-spacing:.04em; margin-bottom:8px; }
     .fit svg.fchart { display:block; width:100%; height:auto; margin-top:8px; }
     .fit .fbar { fill:var(--dim); } .fit .fok { fill:var(--busy); } .fit .fgap { fill:var(--line-strong); }
     .fit .fgoal { stroke:var(--faint); stroke-dasharray:3 3; stroke-width:1; }
@@ -118,11 +115,11 @@
   function night(s) {
     const goal = s.goal_min, last = s.last, prior = s.last_recorded;
     if (!last || !last.recorded) {
-      return `<section class="fsec"><h3>Last night</h3><p class="fbig">Not recorded</p>
+      return `<section class="card fsec"><h3>Last night</h3><p class="fbig">Not recorded</p>
         <p class="fshort">${prior ? esc(`Nothing was recorded for the latest night. The last recorded night, ${date(prior.date)}: ${HM(prior.asleep)} asleep.`)
           : 'No night has been recorded yet.'}</p></section>`;
     }
-    return `<section class="fsec"><h3>Last night</h3>
+    return `<section class="card fsec"><h3>Last night</h3>
       <p class="fbig">${esc(HM(last.asleep))} asleep</p>
       <p class="fshort ${last.short < 0 ? 'bad' : 'good'}">${esc(versus(last.short, goal))}</p>
       <p class="fnote">The morning of ${esc(date(last.date))}.</p></section>`;
@@ -132,7 +129,7 @@
     const a = s.avg;
     const avg = n => `<div><span class="fk">${n} nights</span><span class="fv">${esc(a[n].min == null ? 'none recorded' : HM(a[n].min))}</span>
       ${change(a[n].min, a[n].prev, n)}</div>`;
-    return `<section class="fsec"><h3>Running</h3>
+    return `<section class="card fsec"><h3>Running</h3>
       <div class="favgs">${avg('7')}${avg('30')}${avg('90')}</div>
       <p class="fline">Against ${esc(HM(s.goal_min))}: <b>${esc(debt(s.debt['7'].min))}</b> over the last 7 nights,
         <b>${esc(debt(s.debt['30'].min))}</b> over the last 30.</p>
@@ -146,7 +143,7 @@
     if (!w) return '';
     const diff = w.work.nights && w.off.nights ? w.work.min - w.off.min : null;
     const nn = x => `${x} night${x === 1 ? '' : 's'}`;
-    return `<section class="fsec"><h3>Work nights and nights off</h3>
+    return `<section class="card fsec"><h3>Work nights and nights off</h3>
       <div class="favgs"><div><span class="fk">Before work</span><span class="fv">${esc(w.work.min == null ? 'none yet' : HM(w.work.min))}</span>
         <span class="fd">${esc(nn(w.work.nights))}</span></div>
       <div><span class="fk">Nights off</span><span class="fv">${esc(w.off.min == null ? 'none yet' : HM(w.off.min))}</span>
@@ -157,13 +154,13 @@
   function heart(h) {
     const now = h.latest == null ? '<b>not recorded</b>'
       : `<b>${esc(`${Math.round(h.latest)} bpm`)}</b> on ${esc(date(h.date))}`;
-    return `<section class="fsec"><h3>Resting heart rate</h3>
+    return `<section class="card fsec"><h3>Resting heart rate</h3>
       <p class="fline">${now}${h.avg30 != null ? `, <b>${esc(h.avg30.toFixed(1))}</b> average over 30 days` : ''}.</p>
       ${lineChart(h.chart, 'Resting heart rate', 0)}</section>`;
   }
 
   function steps(st, u) {
-    return `<section class="fsec"><h3>Steps and distance</h3>
+    return `<section class="card fsec"><h3>Steps and distance</h3>
       <p class="fline"><b>${esc(st.today == null ? 'not recorded' : N(st.today))}</b> steps today${
         st.km_today != null ? `, <b>${esc(st.km_today.toFixed(1))} ${esc(u.distance)}</b>` : ''}.</p>
       <p class="fline"><b>${esc(st.week == null ? 'not recorded' : N(st.week))}</b> steps in the last 7 days${
@@ -175,7 +172,7 @@
     const ch = w.change30 == null ? '' : Math.abs(w.change30) < .1 ? 'no change over 30 days'
       : `${w.change30 < 0 ? 'down' : 'up'} ${Math.abs(w.change30).toFixed(1)} ${u.weight} over 30 days`;
     const when = w.date ? `, last recorded ${date(w.date)}${ch ? `, ${ch}` : ''}` : '';
-    return `<section class="fsec"><h3>Weight</h3>
+    return `<section class="card fsec"><h3>Weight</h3>
       <p class="fline"><b>${esc(w.latest == null ? 'not recorded' : `${w.latest.toFixed(1)} ${u.weight}`)}</b>${esc(when)}.</p>
       ${w.flat ? `<p class="fnote">The value has not moved in ${esc(w.window)} days.</p>` : ''}
       ${lineChart(w.chart, 'Weight', 0)}</section>`;
@@ -190,7 +187,7 @@
         s && s.docs ? ` See ${esc(s.docs)} in the repo to set one up.` : ''}</p></div>`;
       return;
     }
-    el.innerHTML = `<div class="fit">${s.demo ? '<span class="demo">DEMO</span>' : ''}${
+    el.innerHTML = `<div class="fit">${s.demo ? '<span class="chip demo">DEMO</span>' : ''}${
       night(s)}${running(s)}${work(s.work_split)}${heart(s.heart)}${steps(s.steps, s.units)}${weight(s.weight, s.units)}
       <p class="fnote">${esc(`${s.source || ''}${s.as_of ? `, data to ${date(String(s.as_of).slice(0, 10))}` : ''}.`)}</p></div>`;
   }
