@@ -219,3 +219,31 @@ def test_a_view_named_in_the_address_opens_even_from_the_menu(open_page, base_ur
     page.goto(f"{base_url}/?view=pages")
     page.wait_for_selector("#nav button[data-id]")
     assert page.eval_on_selector('#views > section[data-id="pages"]', "e => !e.hidden")
+
+
+def test_the_strip_is_one_span_per_reading_with_the_figures_in_bold(open_page):
+    page = open_page()
+    page.wait_for_function("document.querySelectorAll('#strip span').length >= 3")
+    spans = page.eval_on_selector_all("#strip span", "els => els.map(e => e.textContent)")
+    assert spans[:3] == ["5h $1.50", "7d $20.00", "limits: no credentials"]
+    assert page.eval_on_selector_all("#strip b", "els => els.map(e => e.textContent)")[:2] == ["$1.50", "$20.00"]
+    assert " | " not in page.inner_text("#strip")
+
+
+def test_a_reading_it_does_not_have_is_said_in_words_never_as_a_zero(open_page):
+    page = open_page()
+    page.wait_for_function("document.querySelectorAll('#strip span').length >= 3")
+    text = page.inner_text("#strip")
+    assert "no credentials" in text
+    assert "0%" not in text
+
+
+def test_the_strip_escapes_what_the_server_says(open_page):
+    page = open_page()
+    page.route("**/api/usage*", lambda r: r.fulfill(json={
+        "five_hour": {"cost_usd": 1}, "seven_day": {"cost_usd": 2},
+        "limits": {"available": False, "reason": "<img src=x onerror=window.__hit=1>"}}))
+    page.evaluate("CC.show('sessions')")
+    page.wait_for_function("document.getElementById('strip').textContent.includes('<img')")
+    assert page.locator("#strip img").count() == 0
+    assert page.evaluate("window.__hit") is None
