@@ -290,3 +290,15 @@ def test_the_page_does_not_scroll_sideways_with_long_names_in_roboto(open_page):
     roboto(page)
     page.click(".scard-main")
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+def test_pictures_for_a_person_to_read(open_page):
+    out = os.environ.get("CARD_SHOTS")
+    if not out:
+        pytest.skip("set CARD_SHOTS=<folder> to write cards-dark.png and cards-light.png")
+    for scheme in ("dark", "light"):
+        page = open_page(scheme)
+        roboto(page)
+        page.click(f"{card('infra')} .scard-main")
+        page.wait_for_selector(f"{card('infra')} .scard-more")
+        page.screenshot(path=os.path.join(out, f"cards-{scheme}.png"), full_page=True)
