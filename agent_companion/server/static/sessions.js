@@ -3,38 +3,7 @@
 (function () {
   const esc = CC.esc;
   const identity = window.CCIdentity;
-  const css = document.createElement('style');
-  css.textContent = `
-    .scard { border-left:4px solid hsl(var(--h,0) var(--sc-pct,40%) 50%); overflow-wrap:anywhere; }
-    .scard.waiting { border-color:var(--alert); }
-    .scard .top { display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }
-    .scard .top h3 { margin:0; }
-    .scard .meta { display:flex; flex-wrap:wrap; gap:4px 12px; color:var(--dim); font-size:.8rem; margin:2px 0 6px; }
-    .scard .reply { margin:6px 0 0; max-height:4.4em; overflow:hidden; color:var(--fg); }
-    .scard .bg-jobs { margin:7px 0 0; color:var(--dim); font-size:.8rem; }
-    .scard .bg-job { display:flex; gap:8px; justify-content:space-between; align-items:baseline; }
-    .scard .bg-job code { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .scard .bg-job time { flex:0 0 auto; color:var(--faint); }
-    .scard .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
-    .scard .action-result { margin:8px 0 0; color:var(--dim); }
-    .scard .newbadge { color:var(--accent); border:1px solid var(--accent); border-radius:6px; padding:0 6px; font-size:.75rem; font-weight:700; }
-    .sessions-seen-all { margin:0 0 10px; }
-    .sessions-seen-all .faint { margin-left:8px; }
-    .restore-sessions { margin:0 0 12px; padding:10px; border:1px solid var(--accent); border-radius:8px; }
-    .restore-sessions p { margin:0 0 6px; }
-    .restore-sessions ul { margin:6px 0 0; padding-left:20px; }
-    .restore-sessions .action-result { margin-bottom:0; }
-    .wbadge { color:var(--alert); border:1px solid var(--alert); border-radius:6px; padding:0 6px; font-size:.75rem; font-weight:700; }
-    .clearbadge { color:var(--busy); border:1px solid var(--busy); border-radius:6px; padding:0 6px; font-size:.75rem; font-weight:700; }
-    .cold { color:var(--alert); }
-    .dot { width:8px; height:8px; border-radius:50%; background:var(--faint); display:inline-block; }
-    .dot.busy { background:var(--busy); }
-    .bar { height:4px; background:var(--sunk); border-radius:2px; margin-top:6px; }
-    .bar i { display:block; height:100%; background:var(--dim); border-radius:2px; }
-    .new-session-button { margin:0 0 10px; }
-    .bar.hot i { background:var(--alert); }`;
-  document.head.appendChild(css);
-
+  const openCards = new Set();
   const ago = s => s == null ? '' : s < 60 ? `${Math.round(s)}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`;
   const money = n => '$' + Number(n || 0).toFixed(2);
   const short = m => String(m || '').replace(/^claude-/, '').replace(/-(\d)-(\d)$/, ' $1.$2');
@@ -93,7 +62,7 @@
       actionButton(r, 'end', 'End'),
       idle && r.suggestion ? suggestionButton(r) : '',
     ].filter(Boolean).join('');
-    return actions ? `<div class="actions">${actions}</div>${actionResult(r)}` : '';
+    return actions ? `<div class="actions">${actions}</div>` : '';
   }
 
   function cacheChip(cache) {
@@ -117,21 +86,22 @@
     return `<div class="bg-jobs"><div>${esc(label)}</div>${lines}</div>`;
   }
 
-  function card(r) {
+  function ctx(r) {
     const name = r.speaker || r.name || r.project || 'session';
-    const pct = Math.max(0, Math.min(100, Number(r.context_pct) || 0));
-    return `<article class="card scard${r.waiting ? ' waiting' : ''}" data-pid="${esc(r.pid)}" data-card-key="${esc(cardKey(r))}" style="--h:${identity.hue(name)}">
-      <div class="top"><span class="dot ${esc(r.status)}"></span>${identity.sprite(name)}<h3>${esc(name)}</h3>
-        ${r.waiting ? '<span class="wbadge">waiting</span>' : ''}${isUnread(r) ? '<span class="newbadge">new</span>' : ''}${r.needs_clear ? '<span class="clearbadge">needs /clear</span>' : ''}${r.child ? '<span class="faint">spawned</span>' : ''}</div>
-      <div class="meta"><span>${esc(r.project)}</span>${r.branch ? `<span>${esc(r.branch)}</span>` : ''}
-        <span>${esc(short(r.model))}</span><span>${esc(money(r.cost_usd))}</span><span>${esc(Math.round(pct))}% context</span>
-        <span>${esc(ago(r.last_activity))}</span>${cacheChip(r.cache)}</div>
-      ${r.title ? `<div class="dim">${esc(r.title)}</div>` : ''}
-      ${r.last_reply ? `<p class="reply">${esc(r.last_reply)}</p>` : ''}
-      ${backgroundJobs(r)}
-      <div class="bar${pct >= 80 ? ' hot' : ''}"><i style="width:${pct}%"></i></div>
-      ${actionRow(r)}
-    </article>`;
+    const key = cardKey(r);
+    return {key, name, hue: identity.hue(name), open: openCards.has(key), unread: isUnread(r),
+      actions: actionRow(r), result: actionResult(r), jobs: backgroundJobs(r), cache: cacheChip(r.cache),
+      ago, money, short};
+  }
+
+  const GROUPS = [['needs', 'Needs you'], ['working', 'Working'], ['idle', 'Idle']];
+
+  function groupsHtml() {
+    return GROUPS.map(([id, title]) => {
+      const rows = rowsOnPage.filter(r => CCCard.group(r) === id);
+      if (!rows.length) return '';
+      return `<h2 class="grp">${esc(title)} <span class="n">${rows.length}</span></h2>${rows.map(r => CCCard.html(r, ctx(r))).join('')}`;
+    }).join('');
   }
 
   function restorePanel() {
@@ -150,7 +120,7 @@
     const seenAll = rowsOnPage.some(isUnread);
     const control = seenAll ? `<p class="sessions-seen-all"><button type="button" class="act" data-seen-all>Seen all</button>${seenAllError ? `<span class="faint" role="status">${esc(seenAllError)}</span>` : ''}</p>` : '';
     const launcher = '<button type="button" class="act primary new-session-button" data-new-session>New session</button>';
-    sessionsEl.innerHTML = launcher + restorePanel() + (rowsOnPage.length ? control + rowsOnPage.map(card).join('') : '<p class="empty">No live sessions.</p>');
+    sessionsEl.innerHTML = launcher + restorePanel() + (rowsOnPage.length ? control + groupsHtml() : '<p class="empty">No live sessions.</p>');
   }
 
   function rememberResult(r, text) {
@@ -165,7 +135,19 @@
     }, RESULT_MS + 50);
   }
 
+  function toggleCard(event) {
+    const main = event.target.closest('.scard-main');
+    if (!main || !sessionsEl || !sessionsEl.contains(main)) return false;
+    const key = main.closest('.scard').dataset.cardKey;
+    if (openCards.has(key)) openCards.delete(key); else openCards.add(key);
+    renderCards();
+    const again = [...sessionsEl.querySelectorAll('.scard')].find(el => el.dataset.cardKey === key);
+    if (again && event.type === 'keydown') again.querySelector('.scard-main').focus();
+    return true;
+  }
+
   async function act(event) {
+    if (toggleCard(event)) return;
     const restore = event.target.closest('[data-restore-sessions]');
     if (restore && sessionsEl && sessionsEl.contains(restore) && !restoreBusy) {
       restoreBusy = true;
@@ -307,6 +289,12 @@
         }
       }, 4000);
       el.addEventListener('click', act);
+      el.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        if (!event.target.classList || !event.target.classList.contains('scard-main')) return;
+        event.preventDefault();
+        toggleCard(event);
+      });
     },
     refresh,
   });

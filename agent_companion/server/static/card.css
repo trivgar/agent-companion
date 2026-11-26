@@ -1,0 +1,66 @@
+/* The sessions tab: groups, the card, its figure slot, badges, details and
+   actions. Tokens only; the one computed colour is the card's tint, edge and
+   accent, which come from the hue on the card itself (--h). They are set on the
+   card, never on :root, where --h does not exist. */
+.grp { display:flex; align-items:baseline; column-gap:.25em; margin:.6rem 0 .35rem; font-size:.68rem; font-weight:600;
+  text-transform:uppercase; letter-spacing:.09em; color:var(--faint); }
+.grp .n { color:var(--dim); margin-left:.3rem; }
+
+.scard { --tint-bg:hsl(var(--h,0) 46% 96%); --tint-edge:hsl(var(--h,0) 30% 82%); --tint-accent:hsl(var(--h,0) 48% 40%);
+  position:relative; padding:0; margin:0 0 5px; border:1px solid var(--tint-edge); border-radius:.5rem;
+  background:var(--tint-bg); box-shadow:inset 3px 0 0 var(--tint-accent); overflow-wrap:anywhere; }
+@media (prefers-color-scheme:dark) {
+  .scard { --tint-bg:hsl(var(--h,0) 26% 16%); --tint-edge:hsl(var(--h,0) 24% 30%); --tint-accent:hsl(var(--h,0) 60% 66%); }
+}
+.scard.idle { background:color-mix(in srgb, var(--tint-bg) 55%, var(--sunk)); filter:saturate(.45); }
+.scard.waiting { border-color:var(--alert); box-shadow:inset 3px 0 0 var(--alert); }
+.scard.open { border-color:var(--line-strong); }
+.scard-main { position:relative; min-height:56px; padding:5px 9px 6px 56px; cursor:pointer; }
+.scard-main:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+.scard .spr { position:absolute; left:8px; top:6px; width:40px; height:40px; }
+.scard.idle .spr .identity-sprite { opacity:.6; }
+
+.scard .top { display:flex; flex-wrap:wrap; gap:0 8px; align-items:baseline; }
+.scard .top h3 { margin:0; min-width:0; font-size:.92rem; font-weight:650; }
+.scard.idle .top h3 { color:var(--dim); font-weight:600; }
+.scard.waiting .top h3 { color:var(--alert); }
+.dot { display:inline-block; flex:0 0 auto; width:8px; height:8px; margin-right:-2px; border-radius:50%; border:1px solid var(--busy); }
+.dot.busy { background:var(--busy); }
+.proj { margin-left:auto; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  color:var(--dim); font-size:.72rem; }
+.wbadge, .newbadge, .clearbadge { font-size:.7rem; font-weight:700; letter-spacing:.07em; white-space:nowrap; }
+.wbadge, .clearbadge { text-transform:uppercase; }
+.wbadge { color:var(--alert); }
+.newbadge { color:var(--accent); }
+.clearbadge { color:var(--busy); }
+.scard .said { margin:.2rem 0 .25rem; font-size:.8rem; line-height:1.35; color:var(--fg);
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.scard.open .said { display:block; overflow:visible; }
+.scard.idle .said { color:var(--dim); }
+.said .when { color:var(--faint); font-size:.72rem; }
+
+.scard-more { padding:0 9px 8px 56px; }
+.scard .meta { display:flex; gap:8px; flex-wrap:wrap; row-gap:4px; align-items:baseline; color:var(--dim);
+  font-size:.72rem; font-variant-numeric:tabular-nums; line-height:1.4; }
+.brchip, .mdl { border:1px solid var(--line-strong); border-radius:4px; padding:0 .3rem; color:var(--fg); }
+.ctx { color:var(--alert); font-weight:600; }
+.cold { color:var(--alert); }
+.scard .dim { margin:4px 0 0; font-size:.8rem; }
+.bar { height:5px; margin:.4rem 0 .1rem; background:var(--sunk); border-radius:2px; overflow:hidden; }
+.bar i { display:block; height:100%; background:var(--dim); }
+.bar.hot i { background:var(--alert); }
+.scard .bg-jobs { margin:7px 0 0; color:var(--dim); font-size:.8rem; }
+.scard .bg-job { display:flex; gap:8px; justify-content:space-between; align-items:baseline; }
+.scard .bg-job code { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.scard .bg-job time { flex:0 0 auto; color:var(--faint); }
+.scard .actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.scard .actions button.act { font-size:.76rem; color:var(--dim); background:none; border-color:var(--line); border-radius:6px; padding:0 .8rem; }
+.scard .action-result { margin:8px 0 0; color:var(--dim); font-size:.8rem; }
+
+.sessions-seen-all { margin:0 0 10px; }
+.sessions-seen-all .faint { margin-left:8px; }
+.restore-sessions { margin:0 0 12px; padding:10px; border:1px solid var(--accent); border-radius:8px; }
+.restore-sessions p { margin:0 0 6px; }
+.restore-sessions ul { margin:6px 0 0; padding-left:20px; }
+.restore-sessions .action-result { margin-bottom:0; }
+.new-session-button { margin:0 0 10px; }
