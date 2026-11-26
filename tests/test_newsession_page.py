@@ -89,3 +89,33 @@ def test_the_sheet_posts_a_key_and_a_message_and_says_what_happened(base_url):
         assert posted == [{"project": "site", "message": "fix the build"}] * 2
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
         browser.close()
+
+
+def test_pictures_for_a_person_to_read(base_url):
+    import base64
+    import os
+    import pathlib
+    out = os.environ.get("LOOK_SHOTS")
+    if not out:
+        pytest.skip("set LOOK_SHOTS=<folder> to write newsession-dark.png and newsession-light.png")
+    pathlib.Path(out).mkdir(parents=True, exist_ok=True)
+    font = (pathlib.Path(__file__).resolve().parent / "fixtures" / "Roboto-Regular.ttf").read_bytes()
+    with sync_api.sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as exc:
+            pytest.skip(f"chromium unavailable: {exc}")
+        for scheme in ("dark", "light"):
+            page = browser.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme).new_page()
+            page.route("**/api/sessions", lambda route: _json(route, []))
+            page.route(re.compile(r"/api/newsession/projects(\?|$)"), lambda route: _json(route, PROJECTS))
+            page.add_init_script(f"localStorage.setItem('cc-owner-key', '{OWNER}')")
+            page.goto(f"{base_url}/?view=sessions")
+            page.click("[data-new-session]")
+            page.wait_for_selector(".new-session-sheet select[name=project]")
+            page.add_style_tag(content="@font-face{font-family:PhoneRoboto;src:url(data:font/ttf;base64,"
+                               + base64.b64encode(font).decode() + ")}"
+                               "body{font-family:PhoneRoboto,sans-serif !important}")
+            page.evaluate("document.fonts.ready")
+            page.screenshot(path=os.path.join(out, f"newsession-{scheme}.png"))
+        browser.close()

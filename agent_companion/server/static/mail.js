@@ -23,7 +23,7 @@
         ? `<button type="button" class="act primary" data-do="approve">Approve</button>
            <button type="button" class="act" data-do="edit">Save edit</button>
            <button type="button" class="act" data-do="skip">Skip</button>`
-        : `<span class="faint">${esc(m.state === 'approved' ? 'approved, ' + where(m) : 'skipped')}</span>`}</div>
+        : `<span class="chip quiet faint">${esc(m.state === 'approved' ? 'approved, ' + where(m) : 'skipped')}</span>`}</div>
     </article>`;
   }
 

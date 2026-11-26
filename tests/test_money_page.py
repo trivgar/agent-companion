@@ -111,3 +111,29 @@ def test_unset_source_points_at_the_docs(base_url):
         finally:
             os.environ["AGENT_COMPANION_MONEY_SOURCE"] = "demo"
         b.close()
+
+
+def test_pictures_for_a_person_to_read(base_url):
+    import base64
+    import pathlib
+    out = os.environ.get("LOOK_SHOTS")
+    if not out:
+        pytest.skip("set LOOK_SHOTS=<folder> to write money-dark.png and money-light.png")
+    pathlib.Path(out).mkdir(parents=True, exist_ok=True)
+    font = (pathlib.Path(__file__).resolve().parent / "fixtures" / "Roboto-Regular.ttf").read_bytes()
+    with sync_api.sync_playwright() as p:
+        try:
+            b = p.chromium.launch()
+        except Exception as exc:
+            pytest.skip(f"chromium unavailable: {exc}")
+        for scheme in ("dark", "light"):
+            pg = b.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme).new_page()
+            pg.add_init_script(f"localStorage.setItem('cc-owner-key', '{OWNER}')")
+            pg.goto(f"{base_url}/")
+            pg.wait_for_selector(".mnw svg")
+            pg.add_style_tag(content="@font-face{font-family:PhoneRoboto;src:url(data:font/ttf;base64,"
+                             + base64.b64encode(font).decode() + ")}"
+                             "body{font-family:PhoneRoboto,sans-serif !important}")
+            pg.evaluate("document.fonts.ready")
+            pg.screenshot(path=os.path.join(out, f"money-{scheme}.png"))
+        b.close()

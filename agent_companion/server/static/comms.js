@@ -17,14 +17,14 @@
 
   function speaker(name) {
     const value = String(name || '');
-    return value ? `<p class="who"><span class="identity-label">${identity.sprite(value)}<span>${CC.esc(value)}</span></span></p>` : '';
+    return value ? `<p class="who"><span class="identity-heading identity-label">${identity.sprite(value)}<span>${CC.esc(value)}</span></span></p>` : '';
   }
 
   function draw() {
     if (!box) return;
     const status = error || (latest && latest.held ? 'Comms are on hold.' : on ? 'Listening for clips.' : 'Press Play to listen.');
     const who = said.speaker
-      ? `${speaker(said.speaker)}<p class="said">${CC.esc(said.text)}</p>` : '';
+      ? `<div class="card">${speaker(said.speaker)}<p class="said">${CC.esc(said.text)}</p></div>` : '';
     box.innerHTML = `<button class="act primary" id="tts-toggle" aria-pressed="${on}">${on ? 'Pause' : 'Play'}</button>${who}<p class="empty">${CC.esc(status)}</p>`;
     box.querySelector('#tts-toggle').onclick = toggle;
   }

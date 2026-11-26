@@ -9,7 +9,7 @@
   function row(r) {
     const state = WORD[r.state] ? r.state : 'broken';
     return `<article class="card conn ${esc(state)}">
-      <h3>${esc(r.name)} <span class="state">${esc(WORD[state])}</span></h3>
+      <h3>${esc(r.name)} <span class="chip quiet state">${esc(WORD[state])}</span></h3>
       <p class="dim">${esc(r.detail)}</p>
       ${state !== 'ok' && r.fix ? `<p class="fix">${esc(r.fix)}</p>` : ''}
     </article>`;

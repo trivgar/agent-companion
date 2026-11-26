@@ -61,3 +61,31 @@ def test_connections_page_at_phone_width(base_url):
         pg.wait_for_function("true")
         assert posts
         b.close()
+
+
+def test_pictures_for_a_person_to_read(base_url):
+    import base64
+    import os
+    import pathlib
+    out = os.environ.get("LOOK_SHOTS")
+    if not out:
+        pytest.skip("set LOOK_SHOTS=<folder> to write connections-dark.png and connections-light.png")
+    pathlib.Path(out).mkdir(parents=True, exist_ok=True)
+    font = (pathlib.Path(__file__).resolve().parent / "fixtures" / "Roboto-Regular.ttf").read_bytes()
+    with sync_api.sync_playwright() as p:
+        try:
+            b = p.chromium.launch()
+        except Exception as exc:
+            pytest.skip(f"chromium unavailable: {exc}")
+        for scheme in ("dark", "light"):
+            pg = b.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme).new_page()
+            pg.route("**/api/connections", lambda r: r.fulfill(json=ROWS))
+            pg.add_init_script(f"localStorage.setItem('cc-owner-key', '{OWNER}')")
+            pg.goto(f"{base_url}/?view=connections")
+            pg.wait_for_selector(".conn")
+            pg.add_style_tag(content="@font-face{font-family:PhoneRoboto;src:url(data:font/ttf;base64,"
+                             + base64.b64encode(font).decode() + ")}"
+                             "body{font-family:PhoneRoboto,sans-serif !important}")
+            pg.evaluate("document.fonts.ready")
+            pg.screenshot(path=os.path.join(out, f"connections-{scheme}.png"))
+        b.close()

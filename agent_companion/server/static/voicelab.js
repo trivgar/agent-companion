@@ -15,7 +15,7 @@
   }
 
   function audition(item) {
-    return `<article class="card"><h3>${esc(item.name)} <span class="dim">audition</span></h3>` +
+    return `<article class="card"><h3>${esc(item.name)} <span class="chip quiet dim">audition</span></h3>` +
       (item.note ? `<p>${esc(item.note)}</p>` : '') +
       `<p>${(item.clips || []).map((clip, index) => `<button class="act" data-play="${esc(auditionUrl(item.name, clip))}" data-key="${esc(`${item.name}/${clip}`)}">Play ${index + 1}</button>`).join(' ')}</p>` +
       `<p>${[1, 2, 3].map(tier => `<button class="act" data-audition="${esc(item.name)}" data-tier="${tier}">Tier ${tier}</button>`).join(' ')} ` +
@@ -35,7 +35,7 @@
       `${row.tier === tier ? ' aria-pressed="true"' : ''}>${tier}</button>`).join(' ');
     const latest = row.builds && row.builds[0];
     const card = !isOpen ? '' : `<div class="card"><p><b>${esc(row.words)}</b></p>` +
-      `<p><input data-test-text="${esc(row.name)}" maxlength="200" placeholder="Test line"><button class="act" data-test="${esc(row.name)}">Say</button></p>` +
+      `<p><input type="text" data-test-text="${esc(row.name)}" maxlength="200" placeholder="Test line"><button class="act" data-test="${esc(row.name)}">Say</button></p>` +
       (latest ? `<p>${esc(latest.verdict || '')}</p>${clips(latest.dir, latest.clips && latest.clips.new, 'New')}${clips(latest.dir, latest.clips && latest.clips.live, 'Live')}` : '') +
       `</div>`;
     return `<article class="card"><h3><button class="act" data-open="${esc(row.voice)}">${esc(row.name)}</button>` +
@@ -47,7 +47,7 @@
   function pipelineVoice(row) {
     const url = clip => `/api/voicelab/audition/${encodeURIComponent(row.name)}/${encodeURIComponent(clip)}`;
     const mb = (row.bytes || 0) / 1e6;
-    return `<article class="card"><h3>${esc(row.name)} <span class="dim">${esc(row.stage)}, ${esc(mb.toFixed(mb < 10 ? 1 : 0))} MB</span></h3>` +
+    return `<article class="card"><h3>${esc(row.name)} <span class="chip quiet dim">${esc(row.stage)}, ${esc(mb.toFixed(mb < 10 ? 1 : 0))} MB</span></h3>` +
       ((row.audition || []).length ? `<p>${row.audition.map((clip, index) =>
         `<button class="act" data-play="${esc(url(clip))}" data-key="${esc(`${row.name}/${clip}`)}">Play ${index + 1}</button>`).join(' ')}</p>` : '') +
       `</article>`;
@@ -56,7 +56,7 @@
   function drawPipeline() {
     const rows = (data.pipeline.voices || []).map(pipelineVoice).join('');
     box.innerHTML = `<p class="dim"><b>Right now:</b> ${esc((data.now || {}).text || 'not known')}</p>` +
-      `<h2>Voices</h2>${rows || '<p class="empty">No voices yet.</p>'}` +
+      `<h2 class="sec-head">Voices</h2>${rows || '<p class="empty">No voices yet.</p>'}` +
       `<p class="dim">${esc((data.voices || {}).why || '')}</p>`;
     CC.badge('voicelab', 0);
   }
@@ -72,9 +72,9 @@
     const castItems = (cast.voices || []).map(voice).join('') || '<p class="empty">No voices in the cast.</p>';
     const otherItems = (other.builds || []).map(item => `<li>${esc(item.name)}: ${esc(item.phase || '')}</li>`).join('');
     box.innerHTML = `<p class="dim"><b>Right now:</b> ${esc((data.now || {}).text || 'not known')}</p>` +
-      `<h2>Needs you</h2>${needs.ok === false ? `<p class="empty">${esc(needs.why)}</p>` : needItems}` +
-      `<h2>Running now</h2>${running.ok === false ? `<p class="empty">${esc(running.why)}</p>` : runItems}` +
-      `<h2>The cast</h2>${cast.ok === false ? `<p class="empty">${esc(cast.why)}</p>` : castItems}` +
+      `<h2 class="sec-head">Needs you</h2>${needs.ok === false ? `<p class="empty">${esc(needs.why)}</p>` : needItems}` +
+      `<h2 class="sec-head">Running now</h2>${running.ok === false ? `<p class="empty">${esc(running.why)}</p>` : runItems}` +
+      `<h2 class="sec-head">The cast</h2>${cast.ok === false ? `<p class="empty">${esc(cast.why)}</p>` : castItems}` +
       (otherItems ? `<details><summary>Other builds</summary><ul>${otherItems}</ul></details>` : '');
     CC.badge('voicelab', (needs.items || []).length + (running.builds || []).length);
   }

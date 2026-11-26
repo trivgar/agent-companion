@@ -5,10 +5,9 @@
   const {get, post, esc} = window.CC;
   const css = document.createElement('style');
   css.textContent = `
-    .deferred .dadd, .deferred .dgroup { background:var(--raised); border:1px solid var(--line); border-radius:8px; padding:12px; margin:0 0 10px; }
-    .deferred h2 { margin:0 0 8px; font-size:1.05rem; } .deferred h3 { margin:0 0 7px; font-size:.95rem; }
+    .deferred h2 { margin-top:0; }
     .deferred label { display:block; color:var(--dim); font-size:.82rem; margin:8px 0 3px; }
-    .deferred input, .deferred textarea { box-sizing:border-box; display:block; width:100%; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line-strong); border-radius:5px; padding:7px; }
+    .deferred input, .deferred textarea { display:block; margin-top:3px; }
     .deferred textarea { min-height:58px; resize:vertical; } .deferred .drow { display:flex; gap:8px; } .deferred .drow > label { flex:1 1 0; }
     .deferred button { margin-top:10px; } .deferred .dmsg { color:var(--alert); min-height:1.2em; margin:7px 0 0; font-size:.86rem; }
     .deferred ul { list-style:none; padding:0; margin:0; } .deferred li { border-top:1px solid var(--line); padding:9px 0; } .deferred li:first-child { border-top:0; padding-top:0; }
@@ -34,12 +33,12 @@
       if (!groups.has(project)) groups.set(project, []);
       groups.get(project).push(entry);
     });
-    const rows = [...groups.entries()].map(([project, group]) => `<section class="dgroup"><h3>${esc(project)}</h3><ul>${group.map(item).join('')}</ul></section>`).join('');
-    el.innerHTML = `<div class="deferred"><section class="dadd"><h2>Park work for later</h2>
+    const rows = [...groups.entries()].map(([project, group]) => `<section class="card dgroup"><h3>${esc(project)}</h3><ul>${group.map(item).join('')}</ul></section>`).join('');
+    el.innerHTML = `<div class="deferred"><section class="card dadd"><h2>Park work for later</h2>
       <label>What needs doing<textarea id="deferred-text" maxlength="1500" required></textarea></label>
-      <div class="drow"><label>For project (optional)<input id="deferred-for" maxlength="120"></label>
-      <label>Pick up when (optional)<input id="deferred-when" maxlength="200"></label></div>
-      <button id="deferred-add" type="button">Add</button><p id="deferred-msg" class="dmsg" role="status"></p></section>
+      <div class="drow"><label>For project (optional)<input type="text" id="deferred-for" maxlength="120"></label>
+      <label>Pick up when (optional)<input type="text" id="deferred-when" maxlength="200"></label></div>
+      <button id="deferred-add" class="act primary" type="button">Add</button><p id="deferred-msg" class="dmsg" role="status"></p></section>
       ${rows || '<p class="empty">Nothing is parked yet.</p>'}</div>`;
     el.querySelector('#deferred-add').addEventListener('click', submit);
   }

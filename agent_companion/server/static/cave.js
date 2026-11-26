@@ -175,11 +175,11 @@
   // server marks choices this page may safely press; the rest stay terminal-only.
   function cvDialog(dialog) {
     const buttons = dialog.options.filter(option => option.ok).map(option =>
-      `<button type="button" data-cvdialog="${option.n}" data-label="${esc(option.label)}">${esc(option.label)}</button>`).join('');
+      `<button type="button" class="act" data-cvdialog="${option.n}" data-label="${esc(option.label)}">${esc(option.label)}</button>`).join('');
     const terminalOnly = dialog.options.filter(option => !option.ok).map(option => esc(option.label));
     const why = dialog.multi ? 'Several can be selected: answer it in the terminal.'
       : dialog.cut ? 'The top of its screen is cut off, so affirmative choices stay in the terminal.' : '';
-    return `<div class="cv-ask cv-term" data-dialog="${esc(dialog.key)}"><div class="cv-askhead">Waiting in its terminal</div>
+    return `<div class="card cv-ask cv-term" data-dialog="${esc(dialog.key)}"><div class="cv-askhead">Waiting in its terminal</div>
       <pre class="cv-termq">${esc(dialog.question)}</pre>${buttons ? `<div class="cv-askbtns">${buttons}</div>` : ''}${
       why || terminalOnly.length ? `<span class="cv-meta">${why ? why + ' ' : ''}${terminalOnly.length ? `Terminal only: ${terminalOnly.join(' · ')}` : ''}</span>` : ''}</div>`;
   }

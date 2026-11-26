@@ -93,3 +93,30 @@ def test_document_text_is_escaped_and_filters_are_available(page):
     assert page.locator(".spec-document b").count() == 0
     assert page.locator(".spec-document").inner_text() == TEXT
     assert page.get_by_text("Only the start of this document is shown.").is_visible()
+
+
+def test_pictures_for_a_person_to_read(base_url):
+    import base64
+    import pathlib
+    out = os.environ.get("LOOK_SHOTS")
+    if not out:
+        pytest.skip("set LOOK_SHOTS=<folder> to write specs-dark.png and specs-light.png")
+    pathlib.Path(out).mkdir(parents=True, exist_ok=True)
+    font = (pathlib.Path(__file__).resolve().parent / "fixtures" / "Roboto-Regular.ttf").read_bytes()
+    with sync_api.sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as exc:
+            pytest.skip(f"chromium unavailable: {exc}")
+        for scheme in ("dark", "light"):
+            pg = browser.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme).new_page()
+            pg.route("**/api/specs**", lambda route: route.fulfill(json={"ok": True, "docs": DOCS, "agents": {}}))
+            pg.add_init_script(f"localStorage.setItem('cc-owner-key', '{OWNER}')")
+            pg.goto(f"{base_url}/")
+            pg.wait_for_selector(".spec-row")
+            pg.add_style_tag(content="@font-face{font-family:PhoneRoboto;src:url(data:font/ttf;base64,"
+                             + base64.b64encode(font).decode() + ")}"
+                             "body{font-family:PhoneRoboto,sans-serif !important}")
+            pg.evaluate("document.fonts.ready")
+            pg.screenshot(path=os.path.join(out, f"specs-{scheme}.png"))
+        browser.close()

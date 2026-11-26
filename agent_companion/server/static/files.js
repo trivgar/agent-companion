@@ -8,12 +8,13 @@
   css.textContent = `
     .files .top { display:flex; gap:8px; align-items:end; flex-wrap:wrap; margin-bottom:10px; }
     .files label { display:grid; gap:3px; color:var(--dim); font-size:.82rem; }
-    .files select { min-height:40px; max-width:100%; color:var(--fg); background:var(--raised); border:1px solid var(--line); border-radius:8px; font:inherit; padding:0 8px; }
+    .files select { max-width:100%; }
     .files .crumbs { display:flex; flex-wrap:wrap; gap:4px; align-items:center; overflow-wrap:anywhere; margin:0 0 10px; }
-    .files .crumbs button, .files .tree button { color:var(--fg); background:none; border:0; padding:5px 2px; font:inherit; text-align:left; }
+    .files .crumbs button, .files .tree button { min-height:44px; color:var(--fg); background:none; border:0; padding:5px 2px; font:inherit; text-align:left; cursor:pointer; }
     .files .crumbs button { text-decoration:underline; } .files .slash { color:var(--faint); }
-    .files .tree { list-style:none; padding:0; margin:0; } .files .tree li + li { border-top:1px solid var(--line); }
-    .files .tree button { display:block; width:100%; min-height:40px; overflow-wrap:anywhere; }
+    .files .tree { list-style:none; padding:0; margin:0; }
+    .files .tree li.row { padding:0; }
+    .files .tree button { display:block; width:100%; overflow-wrap:anywhere; }
     .files .dir::before { content:'› '; color:var(--dim); } .files .up { color:var(--dim) !important; }
     .files textarea { min-height:50vh; resize:vertical; font:.85rem/1.4 ui-monospace, Menlo, monospace; white-space:pre; overflow:auto; }
     .files .shot { max-width:100%; height:auto; }
@@ -56,9 +57,9 @@
     try { data = await CC.get(`/api/files/tree?${query(folder)}`); }
     catch (error) { box.innerHTML = header() + `<p class="empty">${esc(error.message)}</p>`; return; }
     if (!data.ok) { box.innerHTML = header() + `<p class="empty">${esc(data.detail || 'Not found.')}</p>`; return; }
-    const up = folder ? `<li><button type="button" class="up" data-folder="${esc(parent(folder))}">..</button></li>` : '';
-    const dirs = data.dirs.map(name => `<li><button type="button" class="dir" data-folder="${esc(join(folder, name))}">${esc(name)}</button></li>`).join('');
-    const files = data.files.map(name => `<li><button type="button" data-file="${esc(join(folder, name))}">${esc(name)}</button></li>`).join('');
+    const up = folder ? `<li class="row"><button type="button" class="up" data-folder="${esc(parent(folder))}">..</button></li>` : '';
+    const dirs = data.dirs.map(name => `<li class="row"><button type="button" class="dir" data-folder="${esc(join(folder, name))}">${esc(name)}</button></li>`).join('');
+    const files = data.files.map(name => `<li class="row"><button type="button" data-file="${esc(join(folder, name))}">${esc(name)}</button></li>`).join('');
     box.innerHTML = header() + `<div class="card"><ul class="tree">${up}${dirs}${files || (dirs ? '' : '<li class="empty">No files here.</li>')}</ul></div>`;
   }
 

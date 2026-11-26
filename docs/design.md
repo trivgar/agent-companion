@@ -97,6 +97,17 @@ scroll.
   quiet chip. An ask or terminal choice stays above the log, and the send box
   is pinned to the bottom.
 
+## Primitives
+
+A feature reaches for a primitive before writing a rule of its own.
+
+- `.sec-head`: a group's heading, small, uppercase and quiet, with an optional `.n` count.
+- `.row`: one line of a list, with a lead, a `.body` that wraps, and a tabular `.trail` figure at the right.
+- `.chip`: a branch, a model or a state word on one line; `.chip.quiet` when it is secondary.
+- `.meter`: a bar with a fill (`> i`); `.meter.high` uses `--fg` and `.meter.needs` uses `--alert` only when the owner is needed.
+- `.empty`: an empty state in words, never a blank box or a zero.
+- `button.act`: a 44px action button; `button.act.primary` for the main action on a card or form.
+
 ## A reading it does not have
 
 A meter, strip or badge says why it is blank in words. It never shows a zero
