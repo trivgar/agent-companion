@@ -277,7 +277,10 @@
     } else if (c.enabled && c.why) bits.push(`Codex: ${c.why}`);
     const machine = machineStrip(health);
     if (machine) bits.push(machine);
-    document.getElementById('strip').textContent = bits.join(' | ');
+    // One span per reading. Escaped first, then the figures (money, percent)
+    // are set in bold: the words stay exactly what they were.
+    document.getElementById('strip').innerHTML = bits.map(b =>
+      `<span>${esc(b).replace(/(\$[\d,.]*\d|\d+%)/g, '<b>$1</b>')}</span>`).join('');
   }
 
   async function refresh() {

@@ -1,0 +1,59 @@
+/* The shell: title, usage strip, call button, navigation. A feature never
+   styles these, and nothing here names a colour: tokens only. */
+header { position:sticky; top:0; z-index:5; background:var(--sky-top); padding:10px 16px 0; }
+.head-row { display:flex; justify-content:space-between; align-items:baseline; gap:4px 12px;
+  flex-wrap:wrap; margin-bottom:2px; }
+header h1 { margin:0; font-size:.82rem; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--dim); white-space:nowrap; }
+#needs-restart { margin:0 0 6px; font-size:.85rem; }
+
+/* Usage: one span per reading, the figures doing the talking. */
+#strip { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:2px 12px; min-height:1.2em;
+  color:var(--dim); font-size:.78rem; font-variant-numeric:tabular-nums; }
+#strip b { color:var(--fg); font-weight:600; }
+
+#call { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+#call .call-btn { min-height:44px; padding:0 12px; border:1px solid var(--line-strong); border-radius:8px;
+  background:var(--raised); color:var(--fg); font:inherit; }
+#call .call-btn[aria-pressed="true"] { background:var(--busy); border-color:var(--busy); color:var(--bg); }
+#call .call-bar { flex:1 1 100%; margin:0 0 4px; padding:6px 8px; border:1px solid var(--line); border-radius:8px;
+  background:var(--raised); color:var(--dim); font-size:.8rem; }
+
+/* Navigation as text, not chrome. The tap target comes from height and from
+   a hit area wider than the word. */
+.navwrap { position:relative; display:flex; align-items:center; border-bottom:1px solid var(--line); }
+nav { position:relative; display:flex; flex:1 1 0; min-width:0; gap:14px; overflow-x:auto; scrollbar-width:none; }
+nav::-webkit-scrollbar { display:none }
+nav button, #morelink { position:relative; flex:0 0 auto; display:inline-flex; align-items:center;
+  min-height:44px; margin:0; padding:10px 0 8px; border:0; border-bottom:2px solid transparent;
+  background:none; color:var(--dim); font:inherit; font-size:.82rem; text-transform:lowercase;
+  white-space:nowrap; cursor:pointer; }
+nav button::before, #morelink::before { content:""; position:absolute; top:0; bottom:0; left:-7px; right:-7px; }
+nav button:hover, nav button:focus-visible, #morelink:hover, #morelink:focus-visible { color:var(--fg); }
+nav button[aria-current="true"], #morelink.on { color:var(--fg); border-bottom-color:var(--accent); }
+.navwrap .n { margin-left:.3rem; color:var(--alert); font-weight:700; }
+.navwrap .n:empty { display:none }
+
+/* The sliding underline. Once app.js has placed it, the current item's own
+   border steps aside so there is one line, not two. */
+nav.inked button[aria-current="true"] { border-bottom-color:transparent; }
+nav .ink { position:absolute; left:0; bottom:0; width:100px; height:2px; background:var(--accent);
+  transform-origin:0 0; pointer-events:none; opacity:0; }
+nav .ink.on { opacity:1 }
+@media (prefers-reduced-motion:no-preference) {
+  nav .ink.moves { transition:transform .34s var(--ease-out), opacity .2s ease }
+}
+
+/* "more": a menu anchored to the right edge, outside the scrolling row. */
+#morelink { margin-left:14px; }
+#morelink::after { content:"\2009\25BE"; font-size:.85em; color:var(--faint); }
+#morelink[aria-expanded="true"] { color:var(--fg); }
+#morebar { position:absolute; right:0; top:calc(100% + 6px); z-index:40; display:flex; flex-direction:column;
+  min-width:9rem; padding:.25rem 0; background:var(--raised); border:1px solid var(--line-strong);
+  border-radius:.4rem; box-shadow:0 6px 20px rgba(0,0,0,.28); }
+#morebar button { display:flex; align-items:center; width:100%; min-height:44px; margin:0; padding:0 .95rem;
+  border:0; border-radius:0; background:none; color:var(--dim); font:inherit; font-size:.9rem;
+  text-align:left; text-transform:lowercase; cursor:pointer; }
+#morebar button:hover, #morebar button:focus-visible { background:var(--sunk); color:var(--fg); }
+#morebar button[aria-current="true"] { color:var(--fg); font-weight:600; }
+#morebar hr { width:100%; margin:.25rem 0; border:0; border-top:1px solid var(--line); }

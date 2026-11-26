@@ -15,6 +15,18 @@
 
   const parts = {};
   const order = [];
+  // The six a person reaches for first, in this order. A feature not listed
+  // fills a free place in the server's order; past six, it goes under "more".
+  const PRIMARY = ['sessions', 'asks', 'chat', 'mail', 'comms', 'files'];
+  const NAV_MAX = 6;
+  function splitNav(feats) {
+    const by = {};
+    for (const f of feats) by[f.id] = f;
+    const first = PRIMARY.filter(id => by[id]).map(id => by[id]);
+    const rest = feats.filter(f => !PRIMARY.includes(f.id));
+    while (first.length < NAV_MAX && rest.length) first.push(rest.shift());
+    return {first, rest};
+  }
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
     c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const KEY_HEADER = 'x-agent-companion-key';
@@ -58,14 +70,46 @@
     if (r.status === 401) showPair('This device is not paired, or its key was removed.');
     return r;
   }
-  // A feature sets its nav badge: a number that needs the owner, or 0.
+  // A feature sets its nav badge: a number that needs the owner, or 0. Counts
+  // on items in the menu add up on "more", so a hidden item is never silent.
   function badge(id, n) {
-    const b = document.querySelector(`#nav button[data-id="${id}"] .n`);
+    const b = document.querySelector(`.navwrap button[data-id="${id}"] .n`);
     if (b) b.textContent = n ? String(n) : '';
+    let hidden = 0;
+    for (const m of document.querySelectorAll('#morebar button[data-id] .n')) hidden += Number(m.textContent) || 0;
+    const more = document.querySelector('#morelink .n');
+    if (more) more.textContent = hidden ? String(hidden) : '';
+  }
+  function openMore(open) {
+    const link = document.getElementById('morelink'), bar = document.getElementById('morebar');
+    bar.hidden = !open;
+    link.setAttribute('aria-expanded', String(!!open));
+  }
+  // The underline under the current nav item. It is placed, not animated, the
+  // first time, so a page never opens with a line sliding in from the edge.
+  function moveInk() {
+    const nav = document.getElementById('nav');
+    let ink = nav.querySelector('.ink');
+    if (!ink) {
+      ink = document.createElement('i');
+      ink.className = 'ink';
+      nav.appendChild(ink);
+      nav.classList.add('inked');
+    }
+    const cur = nav.querySelector('button[aria-current="true"]');
+    if (!cur) { ink.classList.remove('on', 'moves'); return; }
+    if (ink.classList.contains('on')) ink.classList.add('moves');
+    ink.style.transform = `translateX(${cur.offsetLeft}px) scaleX(${cur.offsetWidth / 100})`;
+    ink.classList.add('on');
+    cur.scrollIntoView({block: 'nearest', inline: 'nearest'});
   }
   function show(id) {
     for (const s of document.querySelectorAll('#views > section')) s.hidden = s.dataset.id !== id;
-    for (const b of document.querySelectorAll('#nav button')) b.setAttribute('aria-current', String(b.dataset.id === id));
+    for (const b of document.querySelectorAll('.navwrap button[data-id]')) b.setAttribute('aria-current', String(b.dataset.id === id));
+    document.getElementById('morelink').classList.toggle('on',
+      !!document.querySelector(`#morebar button[data-id="${id}"]`));
+    openMore(false);
+    moveInk();
     const u = new URL(location.href);
     u.searchParams.set('view', id);
     history.replaceState(null, '', u.pathname + u.search);
@@ -105,13 +149,33 @@
     }
     await restartNotice();
     const nav = document.getElementById('nav'), views = document.getElementById('views');
-    for (const f of feats) {
+    const more = document.getElementById('morelink'), bar = document.getElementById('morebar');
+    const item = f => `<button type="button" data-id="${esc(f.id)}">${esc(f.title)}<span class="n"></span></button>`;
+    const {first, rest} = splitNav(feats);
+    for (const f of first.concat(rest)) {
       order.push(f.id);
-      nav.insertAdjacentHTML('beforeend',
-        `<button type="button" data-id="${esc(f.id)}">${esc(f.title)}<span class="n"></span></button>`);
       views.insertAdjacentHTML('beforeend', `<section data-id="${esc(f.id)}" hidden></section>`);
     }
-    nav.addEventListener('click', e => { const b = e.target.closest('button[data-id]'); if (b) show(b.dataset.id); });
+    nav.innerHTML = first.map(item).join('');
+    // The menu always holds the animations switch, so "more" is always there.
+    bar.innerHTML = rest.map(item).join('') + (rest.length ? '<hr>' : '') +
+      '<button type="button" id="still-toggle" role="menuitemcheckbox"></button>';
+    const still = document.getElementById('still-toggle');
+    const drawStill = () => {
+      const off = window.CCStill.get();
+      still.textContent = `animations: ${off ? 'off' : 'on'}`;
+      still.setAttribute('aria-checked', String(!off));
+    };
+    drawStill();
+    still.addEventListener('click', e => { e.stopPropagation(); window.CCStill.set(!window.CCStill.get()); drawStill(); });
+    more.hidden = false;
+    const pick = e => { const b = e.target.closest('button[data-id]'); if (b) show(b.dataset.id); };
+    nav.addEventListener('click', pick);
+    bar.addEventListener('click', pick);
+    more.addEventListener('click', e => { e.stopPropagation(); openMore(bar.hidden); });
+    document.addEventListener('click', e => { if (!bar.hidden && !e.target.closest('#morebar')) openMore(false); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') openMore(false); });
+    window.addEventListener('resize', moveInk);
     const want = new URL(location.href).searchParams.get('view');
     show(order.includes(want) ? want : order[0] || '');
     for (const f of feats) {
