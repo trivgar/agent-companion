@@ -93,13 +93,12 @@ html[data-still] *, html[data-still] *::before, html[data-still] *::after {
 #chat-asks .cv-meta { display:block; margin-top:6px; color:var(--faint); font-size:.76rem; }
 
 /* Connections: the state is a word and a weight first; colour only backs up "broken". */
-.conn .state { font-weight:500; font-size:.85rem; color:var(--dim); margin-left:6px; }
-.conn.broken .state { font-weight:700; color:var(--alert); }
+.conn .state { font-weight:500; margin-left:6px; }
+.conn.broken .state { font-weight:700; color:var(--alert); border-color:var(--alert); }
 .conn.ok .state { font-weight:400; }
 .conn.off h3 { font-weight:600; }
-.conn .fix { margin:6px 0 0; padding-left:10px; border-left:3px solid var(--line-strong); overflow-wrap:anywhere; }
+.conn .fix { margin:6px 0 0; padding-left:10px; border-left:3px solid var(--line-strong); }
 .conn.broken .fix { border-left-color:var(--alert); }
-.conn p { overflow-wrap:anywhere; }
 
 /* Pages: an agent's HTML runs only in the sealed frame; these rules style the
    dashboard's list and controls, not the published document. */
@@ -115,14 +114,13 @@ html[data-still] *, html[data-still] *::before, html[data-still] *::after {
 .pg-frame { display:block; width:100%; min-height:calc(100dvh - 190px); border:1px solid var(--line); border-radius:.5rem;
   background:var(--raised); }
 /* Phone driver: status, the holder's explicit controls, and a quiet history. */
-.phone-live { display:flex; align-items:center; gap:8px 10px; margin:0 0 10px; padding:10px;
-  border-left:3px solid var(--line-strong); background:var(--raised); }
-.phone-live.phone-alert { border-left-color:var(--alert); }
+.phone-live { display:flex; align-items:center; gap:8px 10px; border-left:3px solid var(--line-strong); }
+.phone-live.phone-alert { border-color:var(--alert); }
 .phone-live > div { flex:1 1 0; min-width:0; }
-.phone-live p, .phone-error { margin:3px 0 0; color:var(--dim); font-size:.85rem; overflow-wrap:anywhere; }
+.phone-live p, .phone-error { margin:3px 0 0; color:var(--dim); font-size:.85rem; }
 .phone-error { color:var(--alert); }
 .phone-history { margin-top:12px; border-top:1px solid var(--line); }
 .phone-history summary { min-height:44px; display:flex; align-items:center; font-weight:600; cursor:pointer; }
 .phone-history ol { margin:0; padding:0; list-style:none; }
-.phone-history li { display:grid; gap:2px; padding:8px 0; border-top:1px solid var(--line); }
+.phone-history li { flex-direction:column; gap:2px; }
 .phone-history li span { color:var(--dim); font-size:.82rem; }

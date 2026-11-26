@@ -22,7 +22,7 @@
 
   function live(job) {
     const urgent = job.state === 'paused' || job.state === 'waiting' || job.prompt || job.your_turn;
-    return `<article class="phone-live${urgent ? ' phone-alert' : ''}">
+    return `<article class="card phone-live${urgent ? ' phone-alert' : ''}">
       <div><strong>${esc(text(job.agent) || 'An agent')} is driving the ${esc(text(job.device) || 'phone')}</strong>
       <p>${esc(text(job.task) || 'A task')}${detail(job) ? ': ' + esc(detail(job)) : ''}</p></div>
       <button class="act" type="button" data-stop="${esc(job.id)}">Stop</button>
@@ -31,15 +31,15 @@
 
   function pending(device) {
     const id = text(device.device_id);
-    return `<article class="phone-live phone-alert"><div><strong>${esc(text(device.model) || 'A phone')} wants to pair</strong>
+    return `<article class="card phone-live phone-alert"><div><strong>${esc(text(device.model) || 'A phone')} wants to pair</strong>
       <p>Registered ${esc(age(device.registered))}; id ending ${esc(id.slice(-6))}.</p></div>
-      <button class="act" type="button" data-device="${esc(id)}" data-action="approve">Approve</button>
+      <button class="act primary" type="button" data-device="${esc(id)}" data-action="approve">Approve</button>
       <button class="act" type="button" data-device="${esc(id)}" data-action="forget">Forget</button>
     </article>`;
   }
 
   function history(job) {
-    return `<li><strong>${esc(text(job.task) || 'Untitled job')}</strong><span>${esc(
+    return `<li class="row"><strong>${esc(text(job.task) || 'Untitled job')}</strong><span>${esc(
       `${text(job.agent) || 'agent'} · ${text(job.device) || 'phone'} · ${text(job.outcome) || 'ended'} · ${age(job.ended || job.created)}`
     )}</span></li>`;
   }
