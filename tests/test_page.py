@@ -76,6 +76,10 @@ def page(base_url):
         b.close()
 
 
+def open_card(page, name):
+    page.locator(f'.scard:has(h3:text-is("{name}")) .scard-main').click()
+
+
 def test_cards_render_without_horizontal_scroll(page):
     page.wait_for_selector(".scard")
     assert page.locator(".scard").count() == 3
@@ -83,7 +87,7 @@ def test_cards_render_without_horizontal_scroll(page):
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
     # Strings are escaped, never parsed as markup.
     assert page.locator(".scard b").count() == 0
-    assert "beta <b>x</b>" in page.locator(".scard").nth(1).inner_text()
+    assert "beta <b>x</b>" in page.locator(".scard").nth(0).inner_text()
 
 
 def test_session_sprite_is_deterministic_and_safe(page):
@@ -111,6 +115,7 @@ def test_session_sprite_is_deterministic_and_safe(page):
 
 def test_background_jobs_show_count_command_and_age(page):
     page.wait_for_selector(".scard")
+    open_card(page, "alpha")
     jobs = page.locator('.scard:has(h3:text-is("alpha")) .bg-jobs')
     assert jobs.locator("> div").first.inner_text() == "2 jobs running"
     rows = jobs.locator(".bg-job")
@@ -126,7 +131,7 @@ def test_waiting_session_shows_alert_badge_and_nav_count(page):
     waiting = page.locator(".scard.waiting")
     assert waiting.count() == 1
     badge = waiting.locator(".wbadge")
-    assert badge.inner_text().strip().lower() == "waiting"
+    assert badge.inner_text().strip().lower() == "needs you"
     color = badge.evaluate("e => getComputedStyle(e).color")
     root = page.evaluate("(() => { const d = document.createElement('i'); d.style.color='var(--alert)'; "
                          "document.body.appendChild(d); return getComputedStyle(d).color })()")
@@ -171,6 +176,7 @@ def test_card_action_arms_then_posts(page, action, name, path, body):
         route.fulfill(json={"ok": True, "detail": ""})
 
     page.route("**/api/cave/**", cave)
+    open_card(page, name)
     button = page.locator(f'.scard:has(h3:text-is("{name}")) [data-card-action="{action}"]')
     button.click()
     assert button.inner_text() == f"Tap again to {action}"
@@ -186,6 +192,7 @@ def test_card_action_arms_then_posts(page, action, name, path, body):
 def test_a_single_card_action_tap_does_not_post(page):
     calls = []
     page.route("**/api/cave/**", lambda route: calls.append(route) or route.fulfill(json={"ok": True}))
+    open_card(page, "gamma")
     button = page.locator('.scard:has(h3:text-is("gamma")) [data-card-action="clear"]')
     button.click()
     assert button.inner_text() == "Tap again to clear"
@@ -194,6 +201,7 @@ def test_a_single_card_action_tap_does_not_post(page):
 
 def test_card_action_refusal_shows_the_servers_detail(page):
     page.route("**/api/cave/stop/alpha", lambda route: route.fulfill(json={"ok": False, "detail": "the session is gone"}))
+    open_card(page, "alpha")
     button = page.locator('.scard:has(h3:text-is("alpha")) [data-card-action="stop"]')
     button.click()
     button.click()
@@ -208,6 +216,7 @@ def test_card_suggestion_arms_then_posts_its_original_words(page):
         route.fulfill(json={"ok": True, "detail": ""})
 
     page.route("**/api/cave/**", cave)
+    open_card(page, "gamma")
     button = page.locator('.scard:has(h3:text-is("gamma")) [data-card-action="suggest"]')
     assert button.inner_text() == "Send: Review the compact example and confirm the checks still pas…"
     button.click()
