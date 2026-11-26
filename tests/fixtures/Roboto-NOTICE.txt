@@ -1,0 +1,5 @@
+Roboto-Regular.ttf is the Roboto typeface, Copyright Google LLC, licensed under
+the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0
+
+It is here so layout tests measure text in the font an Android phone draws
+"system-ui" in. A headless browser's default font runs about a fifth wider.

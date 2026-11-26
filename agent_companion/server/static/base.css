@@ -7,6 +7,11 @@
   --fg:#191b20; --dim:#5f6470; --faint:#676b78;
   --alert:#b3401a; --busy:#2f7d4f; --accent:#191b20;
   --sl:44%; --sc:0.13;
+  /* The page's ground. --sky-top is the sky's colour at the top edge, for
+     anything that must sit over scrolling content without a seam. */
+  --sky:var(--bg); --sky-top:var(--bg);
+  /* One easing for everything that arrives: fast out, soft landing. */
+  --ease-out:cubic-bezier(.22,1,.36,1);
 }
 @media (prefers-color-scheme:dark) {
   :root {
@@ -14,29 +19,20 @@
     --fg:#e8e6e1; --dim:#9ba4ba; --faint:#8891ab;
     --alert:#ff8a5c; --busy:#54c98a; --accent:#e8e6e1;
     --sl:80%; --sc:0.085;
+    /* Dusk: near-black to navy to plum, with a warm glow at the bottom edge.
+       The glow is orange and still is not chrome: --alert keeps its meaning. */
+    --sky:radial-gradient(120% 55% at 50% 108%, rgba(255,138,92,.16), rgba(255,138,92,0) 70%),
+          linear-gradient(180deg, #101319 0%, #161c2b 58%, #2a2130 100%) #101319;
+    --sky-top:#101319;
   }
 }
 * { box-sizing:border-box }
 [hidden] { display:none !important }
-html { background:var(--bg) }
-body { margin:0; background:var(--bg); color:var(--fg);
+/* The sky is on <html> and the body is transparent, so nothing between them
+   can hide it and a feature never paints a ground of its own. */
+html { background:var(--sky); background-attachment:fixed }
+body { margin:0; min-height:100dvh; background:transparent; color:var(--fg);
   font:15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-header { position:sticky; top:0; z-index:5; background:var(--bg); border-bottom:1px solid var(--line);
-  padding:10px 16px 0; }
-header h1 { font-size:1.05rem; margin:0 0 6px; }
-#needs-restart { margin:0 0 6px; font-size:.85rem; }
-#strip { color:var(--dim); font-size:.8rem; min-height:1.2em; }
-#call { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
-#call .call-btn { min-height:38px; padding:0 12px; border:1px solid var(--line-strong); border-radius:8px;
-  background:var(--raised); color:var(--fg); font:inherit; }
-#call .call-btn[aria-pressed="true"] { background:var(--busy); border-color:var(--busy); color:var(--bg); }
-#call .call-bar { flex:1 1 100%; margin:0 0 4px; padding:6px 8px; border:1px solid var(--line); border-radius:8px;
-  background:var(--raised); color:var(--dim); font-size:.8rem; }
-nav { display:flex; gap:4px; overflow-x:auto; padding:6px 0; scrollbar-width:none; }
-nav button { min-height:44px; padding:0 14px; border:1px solid var(--line); border-radius:8px;
-  background:var(--raised); color:var(--fg); font:inherit; white-space:nowrap; }
-nav button[aria-current="true"] { border-color:var(--fg); font-weight:600; }
-nav button .n { color:var(--alert); font-weight:700; margin-left:4px; }
 main { padding:12px 16px 80px; max-width:760px; margin:0 auto; overflow-wrap:anywhere; }
 .card { background:var(--raised); border:1px solid var(--line); border-radius:8px; padding:12px; margin:0 0 10px; }
 .card h3 { margin:0 0 4px; font-size:1rem; }
@@ -49,7 +45,12 @@ button.act.primary { background:var(--fg); color:var(--bg); border-color:var(--f
 textarea, input[type=text] { width:100%; font:inherit; color:var(--fg); background:var(--sunk);
   border:1px solid var(--line); border-radius:8px; padding:10px; }
 .empty { color:var(--dim); padding:24px 0; }
-@media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important } }
+/* Motion stops for the system setting and for the app's own switch (still.js). */
+@media (prefers-reduced-motion:reduce) {
+  *, *::before, *::after { animation:none !important; transition:none !important }
+}
+html[data-still] *, html[data-still] *::before, html[data-still] *::after {
+  animation:none !important; transition:none !important }
 
 /* A choice drawn in a terminal pane, surfaced in the chat window. */
 #chat-asks .cv-ask { margin:0 0 10px; padding:10px; border:1px solid var(--alert); border-radius:8px; }

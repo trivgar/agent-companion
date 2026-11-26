@@ -6,14 +6,18 @@
 <title>{{APP_NAME}}</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="stylesheet" href="/static/base.css">
+<link rel="stylesheet" href="/static/shell.css">
 </head>
 <body>
 <header>
-  <h1>Companion</h1>
+  <div class="head-row"><h1>Companion</h1><div id="strip"></div></div>
   <p id="needs-restart" class="needs" role="status" hidden>Restart to load the new code: <code></code></p>
-  <div id="strip"></div>
   {{LIVE_CALL_BUTTON}}
-  <nav id="nav" aria-label="Views"></nav>
+  <div class="navwrap">
+    <nav id="nav" aria-label="Views"></nav>
+    <button type="button" id="morelink" aria-haspopup="true" aria-expanded="false" aria-controls="morebar" hidden>more<span class="n"></span></button>
+    <div id="morebar" hidden></div>
+  </div>
 </header>
 <main id="views"></main>
 <script>{{IDENTITY_CONFIG}}</script>
