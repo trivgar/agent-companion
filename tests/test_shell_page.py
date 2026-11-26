@@ -126,3 +126,96 @@ def test_the_title_and_the_strip_share_a_row_container(open_page):
     page = open_page("dark")
     assert page.locator("header .head-row > h1").count() == 1
     assert page.locator("header .head-row > #strip").count() == 1
+
+
+def ids(page, selector):
+    return page.eval_on_selector_all(selector, "els => els.map(e => e.dataset.id)")
+
+
+def box(page, selector):
+    return page.eval_on_selector(selector, "e => { const r = e.getBoundingClientRect(); "
+                                 "return {x: r.x, w: r.width, h: r.height, bottom: r.bottom} }")
+
+
+def test_six_items_sit_in_the_nav_and_the_rest_under_more(open_page):
+    page = open_page()
+    assert ids(page, "#nav button[data-id]") == NAV_IDS
+    assert page.locator("#morelink").is_visible()
+    assert page.locator("#morebar").is_hidden()
+    assert ids(page, "#morebar button[data-id]") == MORE_IDS
+
+
+def test_few_features_need_no_menu(open_page):
+    page = open_page(feats=[{"id": "sessions", "title": "Sessions"}, {"id": "pages", "title": "Pages"}])
+    assert ids(page, "#nav button[data-id]") == ["sessions", "pages"]
+    assert page.locator("#morelink").is_hidden()
+
+
+def test_nav_items_are_text_and_tall_enough_to_tap(open_page):
+    page = open_page()
+    roboto(page)
+    for i in NAV_IDS:
+        sel = f'#nav button[data-id="{i}"]'
+        assert css(page, sel, "borderTopWidth") == "0px"
+        assert css(page, sel, "backgroundColor") == "rgba(0, 0, 0, 0)"
+        assert box(page, sel)["h"] >= 44
+    assert box(page, "#morelink")["h"] >= 44
+
+
+def test_the_page_does_not_scroll_sideways_in_a_phones_font(open_page):
+    page = open_page()
+    roboto(page)
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+def test_the_underline_sits_under_the_current_item_and_follows_a_tap(open_page):
+    page = open_page()
+    page.wait_for_selector("#nav .ink.on")
+    cur, ink = box(page, '#nav button[data-id="sessions"]'), box(page, "#nav .ink")
+    assert abs(ink["x"] - cur["x"]) <= 1 and abs(ink["w"] - cur["w"]) <= 1
+    page.click('#nav button[data-id="chat"]')
+    page.wait_for_timeout(600)
+    cur, ink = box(page, '#nav button[data-id="chat"]'), box(page, "#nav .ink")
+    assert abs(ink["x"] - cur["x"]) <= 1 and abs(ink["w"] - cur["w"]) <= 1
+    assert css(page, '#nav button[data-id="chat"]', "borderBottomColor") == "rgba(0, 0, 0, 0)"
+
+
+def test_more_opens_a_menu_and_a_pick_shows_that_view(open_page):
+    page = open_page()
+    page.click("#morelink")
+    assert page.locator("#morebar").is_visible()
+    assert page.get_attribute("#morelink", "aria-expanded") == "true"
+    page.click('#morebar button[data-id="specs"]')
+    assert page.locator("#morebar").is_hidden()
+    assert page.eval_on_selector('#views > section[data-id="specs"]', "e => !e.hidden")
+    assert page.locator('#views > section[data-id="sessions"]').is_hidden()
+    assert "on" in page.get_attribute("#morelink", "class").split()
+    assert page.locator("#nav .ink.on").count() == 0
+    assert "view=specs" in page.url
+
+
+def test_the_menu_closes_on_escape_and_on_a_tap_outside(open_page):
+    page = open_page()
+    page.click("#morelink")
+    page.keyboard.press("Escape")
+    assert page.locator("#morebar").is_hidden()
+    page.click("#morelink")
+    page.click("main")
+    assert page.locator("#morebar").is_hidden()
+    assert page.get_attribute("#morelink", "aria-expanded") == "false"
+
+
+def test_a_count_on_a_hidden_item_shows_on_more(open_page):
+    page = open_page()
+    page.evaluate("CC.badge('specs', 2); CC.badge('pages', 1)")
+    assert page.inner_text("#morelink .n") == "3"
+    assert page.inner_text('#morebar button[data-id="specs"] .n') == "2"
+    page.evaluate("CC.badge('specs', 0); CC.badge('pages', 0)")
+    assert page.inner_text("#morelink .n") == ""
+
+
+def test_a_view_named_in_the_address_opens_even_from_the_menu(open_page, base_url):
+    page = open_page()
+    page.goto(f"{base_url}/?view=pages")
+    page.wait_for_selector("#nav button[data-id]")
+    assert page.eval_on_selector('#views > section[data-id="pages"]', "e => !e.hidden")
