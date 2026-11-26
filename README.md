@@ -78,12 +78,17 @@ For PC-specific safeguards that are intentionally not shipped here, see
 
 ## What it does
 
-The tabs, in the order they sit on the page, then the pieces that work around
-them. Turn any tab off with the `features` setting.
+The tabs, then the pieces that work around them. On the page the six you reach
+for most (sessions, asks, chat, mail, comms, files) sit in the row at the top
+and the rest are under "more", which also holds a switch that turns animations
+off. Turn any tab off with the `features` setting.
 
-**Sessions.** One card per live Claude Code session: model, cost, how full its
-context is, the git branch, and its last reply. A session that is waiting on
-you says so. Set a context line to flag a top-level session that needs
+**Sessions.** One card per live Claude Code session, grouped by what it needs:
+Needs you, Working, Idle. A card leads with the session's last reply; a toggle
+opens its model, cost, git branch and how full its context is, with Stop, End
+and the rest. A session that is waiting on you carries its request on the card,
+with Allow and Deny, and a session's helpers fold under it as a count you can
+open. A tap on a card opens that session's chat over the list. Set a context line to flag a top-level session that needs
 `/clear` and receive one push notification on each crossing, which opens that
 session. Background Bash jobs show their command and age. The server can also
 stop stuck ones, **off until you set `job_reaper_every_min`**: then a
@@ -95,7 +100,9 @@ Optionally, `job_reaper_idle` names language servers below a live session to
 stop only after their whole process tree has used no CPU for
 `job_reaper_idle_hours` (2 by default); they restart on their next use.
 `python3 -m agent_companion.jobreaper --dry-run` lists what would go. Each
-card has a deterministic procedural pixel sprite based on its display name. At the top, your 5-hour and 7-day spend, real
+card has a small pixel figure in the session's own colour; its hair, skin and
+shape are picked from the display name, so the same name always draws the same
+figure, and it shows what the session is doing (typing, waiting on you, asleep). At the top, your 5-hour and 7-day spend, real
 Claude limits, and, when local Codex rollout logs exist, Codex plan limits.
 The branch on a session card refreshes after an agent changes its repository.
 If Git is slow, the page keeps its last branch value and refreshes it in the
@@ -125,15 +132,16 @@ before the edit; it never pushes.
 
 **Asks.** When a session wants permission to run something, or asks you a
 multiple-choice question, the asks hook sends it, with the full command or
-tool input, to the dashboard on your PC, and it shows up here with Allow and
-Deny. If the command was long and got shortened, the page makes you open the
+tool input, to the dashboard on your PC, and it shows up here, and on that
+session's card, with Allow and Deny. If the command was long and got shortened, the page makes you open the
 full text before it lets you allow it. The session's own prompt shows at the
 same time, and whichever you answer first wins; when the dashboard is not
 running, the hook steps aside at once. Claude Code's default auto mode settles
 most prompts itself, so only what it will not decide comes here; INSTALL.md
 says how to send every one.
 
-**Chat.** Type to any running session from your phone. Your words go into that
+**Chat.** Type to any running session from your phone: tap its card and the
+chat opens as a sheet over the list, or pick the session on the Chat tab. Your words go into that
 session's terminal pane, as if from the keyboard. When a terminal client draws
 a numbered choice that its hooks did not report, Chat can show it and answer it
 from that session's chat window. It answers only the same dialog while that
